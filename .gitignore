@@ -1,0 +1,10 @@
+.env
+/.vs
+*.slnx
+*.vcxproj
+*.filters
+*.user
+/RobotBuddy
+/x64
+/enc_temp_folder
+*.db
