@@ -43,7 +43,12 @@ namespace Components
 
 	std::optional<Database::Streamer> Database::GetStreamer( const std::string_view StreamerID ) const
 	{
-		SQLite::Statement Query{ DB, "SELECT StreamerID, IsJoinEnabled, WinEmoji, LoseEmoji FROM Streamers WHERE StreamerID = ?" };
+		SQLite::Statement Query
+		{
+			DB,
+			"SELECT StreamerID, IsJoinEnabled, WinEmoji, LoseEmoji FROM Streamers WHERE StreamerID = ?"
+		};
+
 		Query.bind( 1, StreamerID.data() );
 
 		if ( !Query.executeStep() ) return std::nullopt;
@@ -61,7 +66,11 @@ namespace Components
 
 	std::vector<Database::Streamer> Database::GetStreamers() const
 	{
-		SQLite::Statement Query{ DB, "SELECT StreamerID, IsJoinEnabled, WinEmoji, LoseEmoji FROM Streamers" };
+		SQLite::Statement Query
+		{
+			DB,
+			"SELECT StreamerID, IsJoinEnabled, WinEmoji, LoseEmoji FROM Streamers"
+		};
 
 		std::vector<Streamer> Out;
 
@@ -127,7 +136,12 @@ namespace Components
 
 	Database::Streamer Database::PopulateAccounts( Streamer S ) const
 	{
-		SQLite::Statement Query{ DB, "SELECT PUUID FROM Accounts WHERE StreamerID = ?" };
+		SQLite::Statement Query
+		{
+			DB,
+			"SELECT PUUID FROM Accounts WHERE StreamerID = ?"
+		};
+
 		Query.bind( 1, S.StreamerID );
 
 		while ( Query.executeStep() ) S.PUUIDs.emplace_back( Query.getColumn( 0 ).getText() );
