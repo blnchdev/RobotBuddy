@@ -613,11 +613,11 @@ namespace Components
 
 		if ( IsApex )
 		{
-			return std::format( "{} is currently {} {} LP", Tier, LP );
+			return std::format( "{} is currently {} {} LP", StreamerID, Tier, LP );
 		}
 		else
 		{
-			return std::format( "{} is currently {} {} {} LP", Tier, Division, LP );
+			return std::format( "{} is currently {} {} {} LP", StreamerID, Tier, Division, LP );
 		}
 	}
 
