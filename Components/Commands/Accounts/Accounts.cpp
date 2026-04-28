@@ -136,7 +136,7 @@ namespace Components::Operation
 
 		if ( !Response.empty() )
 		{
-			Globals::Bot->ReplyTo( *Data->Context, Response );
+			Globals::TwitchAPI->ReplyTo( *Data->Context, Response );
 		}
 	}
 }

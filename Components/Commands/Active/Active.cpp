@@ -19,6 +19,6 @@ namespace Components::Operation
 			Message = std::format( "{} is not currently in-game!", Data->ChannelID );
 		}
 
-		Globals::Bot->ReplyTo( *Data->Context, Message );
+		Globals::TwitchAPI->ReplyTo( *Data->Context, Message );
 	}
 }

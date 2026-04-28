@@ -32,6 +32,9 @@ int main()
 	Environment::Load();
 	PrintDebug( "Loaded Environment" );
 
+	Globals::BotAPI = std::make_unique<API>();
+	PrintDebug( "Started API, listening on port {}", PORT );
+
 	Globals::DB = std::make_unique<Database>( "Accounts.db" );
 	PrintDebug( "Loaded Database" );
 
@@ -44,16 +47,16 @@ int main()
 	std::vector<std::string_view> ToJoin;
 	std::ranges::for_each( Streamers, [&] ( const Database::Streamer& S ) { if ( S.IsJoinEnabled ) ToJoin.emplace_back( S.StreamerID ); } );
 
-	Globals::Bot = std::make_unique<TwitchBot>( Tokens, Environment::Get( "TWITCH_BOT_NICK" ) );
-	Globals::Bot->Connect();
-	Globals::Bot->Login( ToJoin );
+	Globals::TwitchAPI = std::make_unique<TwitchBot>( Tokens, Environment::Get( "TWITCH_BOT_NICK" ) );
+	Globals::TwitchAPI->Connect();
+	Globals::TwitchAPI->Login( ToJoin );
 
 	Globals::LeagueAPI = std::make_unique<Riot>( Environment::Get( "RIOT_API_KEY" ) );
 	Globals::LeagueAPI->InitializeDataDragon();
 	Globals::LeagueAPI->Connect( Streamers );
 	PrintDebug( "Loaded LeagueAPI" );
 
-	Globals::Bot->Run( OnMessage );
+	Globals::TwitchAPI->Run( OnMessage );
 
 	return 0;
 }

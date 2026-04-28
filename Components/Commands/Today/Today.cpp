@@ -41,6 +41,6 @@ namespace Components::Operation
 	{
 		std::string Response = GetResponse( Data->ChannelID );
 
-		Globals::Bot->ReplyTo( *Data->Context, Response );
+		Globals::TwitchAPI->ReplyTo( *Data->Context, Response );
 	}
 }

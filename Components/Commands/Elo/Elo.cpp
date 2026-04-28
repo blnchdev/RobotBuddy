@@ -10,11 +10,11 @@ namespace Components::Operation
 
 		if ( Response.has_value() )
 		{
-			Globals::Bot->ReplyTo( *Data->Context, Response.value() );
+			Globals::TwitchAPI->ReplyTo( *Data->Context, Response.value() );
 		}
 		else
 		{
-			Globals::Bot->ReplyTo( *Data->Context, std::format( "{} is currently not ranked", Data->ChannelID ) );
+			Globals::TwitchAPI->ReplyTo( *Data->Context, std::format( "{} is currently not ranked", Data->ChannelID ) );
 		}
 	}
 }

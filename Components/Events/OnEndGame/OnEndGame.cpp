@@ -19,6 +19,6 @@ namespace Components::Event
 
 		const std::string Response = std::format( "{} game result: {}. Finished {}/{}/{} ({:.2f}) on {}", ChannelID, GameResult, Summary.Kills, Summary.Deaths, Summary.Assists, Summary.KDA, Summary.Champion );
 
-		Globals::Bot->SendChat( ChannelID, Response );
+		Globals::TwitchAPI->SendChat( ChannelID, Response );
 	}
 }

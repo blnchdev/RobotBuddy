@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 
+#include "Components/API/API.h"
 #include "Components/Database/Database.h"
 #include "Components/Riot/Riot.h"
 #include "Components/TwitchBot/TwitchBot.h"
@@ -13,7 +14,8 @@
 
 namespace Globals
 {
-	inline std::unique_ptr<Components::TwitchBot> Bot       = nullptr;
+	inline std::unique_ptr<Components::TwitchBot> TwitchAPI = nullptr;
 	inline std::unique_ptr<Components::Riot>      LeagueAPI = nullptr;
 	inline std::unique_ptr<Components::Database>  DB        = nullptr;
+	inline std::unique_ptr<Components::API>       BotAPI    = nullptr;
 }
