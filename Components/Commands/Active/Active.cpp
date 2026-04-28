@@ -12,7 +12,7 @@ namespace Components::Operation
 
 		if ( ActiveGame.has_value() )
 		{
-			Message = std::format( "{}'s is playing {} in a game where the {}", Data->ChannelID, ActiveGame->Champion, ActiveGame->AverageElo );
+			Message = std::format( "{} is playing {} in a game where the {}", Data->ChannelID, ActiveGame->Champion, ActiveGame->AverageElo );
 		}
 		else
 		{

@@ -18,6 +18,14 @@ namespace Components
 	using tcp  = asio::ip::tcp;
 	using json = nlohmann::json;
 
+	struct RankEntry
+	{
+		std::string Rank;     // e.g. 'Diamond'
+		std::string Division; // e.g. 'IV'
+		int32_t     LP;
+		bool        IsApex = false;
+	};
+
 	struct GameSummary
 	{
 		uint64_t    GameID;
@@ -31,6 +39,8 @@ namespace Components
 		uint64_t GameEnd;  // Unix
 		int32_t  CreepScore;
 		double   VisionScore;
+
+		std::optional<int32_t> DeltaLP = std::nullopt;
 	};
 
 	struct ActiveGame
@@ -46,8 +56,9 @@ namespace Components
 		std::string              TagLine;
 		std::string              PUUID;
 		std::string              Region;
-		bool                     Valid     = false;
-		std::vector<GameSummary> Summaries = {};
+		bool                     Valid         = false;
+		std::vector<GameSummary> Summaries     = {};
+		std::optional<RankEntry> LastKnownRank = std::nullopt;
 
 		explicit RiotAccount( std::string PUUID );
 	};
@@ -78,9 +89,10 @@ namespace Components
 		void                       Connect( const std::vector<Database::Streamer>& Streamers );
 		Response                   GET( std::string_view Host, std::string_view Target, bool NeedsAPI = true );
 		Response                   GET( std::string_view Target );
-		std::optional<RiotAccount> GetActiveAccount( std::string_view StreamerID );
+		RiotAccount*               GetActiveAccount( std::string_view StreamerID );
 		std::optional<ActiveGame>  GetCurrentGame( std::string_view StreamerID );
-		std::optional<std::string> GetLeagueRank( std::string_view StreamerID );
+		std::optional<RankEntry>   GetLeagueRank( const RiotAccount& Account );
+		std::optional<std::string> GetLeagueRankFormatted( std::string_view StreamerID );
 		std::optional<std::string> GetPUUID( std::string_view SummonerName, std::string_view TagLine );
 		RiotData&                  GetData( std::string_view StreamerID );
 		bool                       AddAccount( std::string_view StreamerID, std::string_view PUUID );
@@ -94,4 +106,7 @@ namespace Components
 		asio::io_context                          IOC;
 		ssl::context                              SSLC;
 	};
+
+	int32_t   RankToLP( const RankEntry& Entry );
+	RankEntry LPToRank( int32_t LP );
 }

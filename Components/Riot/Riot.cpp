@@ -29,73 +29,6 @@ namespace Components
 			{ "IV", 0 }, { "III", 100 }, { "II", 200 }, { "I", 300 }
 		};
 
-		struct RankEntry
-		{
-			std::string Tier;
-			std::string Rank;
-			int32_t     LP;
-			bool        IsApex = false;
-		};
-
-		int32_t RankToLP( const RankEntry& Entry )
-		{
-			const auto TierIterator = TierBase.find( Entry.Tier );
-			if ( TierIterator == TierBase.end() ) return 0;
-
-			const bool IsApexRank = ( Entry.Tier == "MASTER" || Entry.Tier == "GRANDMASTER" || Entry.Tier == "CHALLENGER" );
-			if ( IsApexRank ) return TierIterator->second + Entry.LP;
-
-			const auto DivisionIterator = DivisionBase.find( Entry.Rank );
-			if ( DivisionIterator == DivisionBase.end() ) return 0;
-
-			return TierIterator->second + DivisionIterator->second + Entry.LP;
-		}
-
-		RankEntry LPToRank( const int32_t LP )
-		{
-			static constexpr std::array Tiers =
-			{
-				std::pair{ "IRON", 0 }, std::pair{ "BRONZE", 400 },
-				std::pair{ "SILVER", 800 }, std::pair{ "GOLD", 1200 },
-				std::pair{ "PLATINUM", 1600 }, std::pair{ "EMERALD", 2000 },
-				std::pair{ "DIAMOND", 2400 }, std::pair{ "MASTER", 2800 }
-			};
-
-			static constexpr std::array Divisions =
-			{
-				std::pair{ "IV", 0 }, std::pair{ "III", 100 },
-				std::pair{ "II", 200 }, std::pair{ "I", 300 }
-			};
-
-			if ( LP >= 2800 ) return { .Tier = "MASTER", .Rank = {}, .LP = LP - 2800, .IsApex = true };
-
-			int32_t     TierBase = 0;
-			std::string TierName;
-			for ( auto& [ Name, Base ] : Tiers | std::views::reverse )
-			{
-				if ( LP >= Base )
-				{
-					TierName = Name;
-					TierBase = Base;
-					break;
-				}
-			}
-
-			int32_t     Remainder = LP - TierBase;
-			std::string DivisionName;
-			for ( auto& [ Name, Base ] : Divisions | std::views::reverse )
-			{
-				if ( Remainder >= Base )
-				{
-					DivisionName = Name;
-					Remainder -= Base;
-					break;
-				}
-			}
-
-			return { .Tier = TierName, .Rank = DivisionName, .LP = Remainder, .IsApex = false };
-		}
-
 		int32_t GetAverageLP( const std::span<RankEntry> Entries )
 		{
 			if ( Entries.empty() ) return 0;
@@ -142,9 +75,12 @@ namespace Components
 			url U;
 			U.set_path( "/lol/match/v5/matches/by-puuid" );
 			U.segments().push_back( Account.PUUID );
-			U.segments().push_back( "ids?queue=420&start=0&count=1" );
+			U.segments().push_back( "ids" );
+			U.params().append( { "queue", "420" } );
+			U.params().append( { "start", "0" } );
+			U.params().append( { "count", "1" } );
 
-			const auto Target           = U.encoded_path();
+			const auto Target           = U.encoded_target();
 			auto       [ Status, Body ] = Globals::LeagueAPI->GET( RegionalHost( Account.Region ), Target );
 
 			if ( Status != 200 ) return {};
@@ -163,9 +99,8 @@ namespace Components
 			U.params().append( { "start", "0" } );
 			U.params().append( { "count", std::to_string( Count ) } );
 
-			const auto Target = U.encoded_target();
-			PrintDebug( "GetLastGameIDs URL: {}", std::string( Target ) );
-			auto [ Status, Body ] = Globals::LeagueAPI->GET( RegionalHost( Account.Region ), Target );
+			const auto Target           = U.encoded_target();
+			auto       [ Status, Body ] = Globals::LeagueAPI->GET( RegionalHost( Account.Region ), Target );
 
 			if ( Status != 200 ) return {};
 
@@ -261,6 +196,8 @@ namespace Components
 				const auto Strings       = GetLastGameIDs( Account, 20 );
 				uint64_t   LastGameStart = 0;
 
+				std::vector<GameSummary> TemporaryList = {};
+
 				for ( const auto& StringID : Strings )
 				{
 					const auto Summary = GetGameSummary( Account.PUUID, Account.Region, StringID );
@@ -272,30 +209,59 @@ namespace Components
 						if ( LastGameStart != 0 )
 						{
 							const auto Delta = LastGameStart - Summary->GameEnd;
-							PrintDebug( "Delta = {} (aka {} seconds)", Delta, Delta / 1000ULL );
 
 							if ( Delta >= 2ULL * 60ULL * 60ULL * 1000ULL ) break;
 						}
 
 						LastGameStart = CurrentGameStart;
-						Account.Summaries.push_back( *Summary );
+						TemporaryList.push_back( *Summary );
 					}
 				}
+
+				std::ranges::reverse( TemporaryList );
+				Account.Summaries.swap( TemporaryList );
 			}
 			else
 			{
 				const auto StringID = GetLastGameID( Account );
 				const auto LastID   = ExtractGameID( StringID );
-				if ( LastID == Account.Summaries.front().GameID ) return; // Last Fetched == Last Saved; no new game.
+
+				if ( LastID == Account.Summaries.back().GameID ) return; // Last Fetched == Last Saved; no new game.
+
+				PrintDebug( "Found new game! '{}' (LastID was {})", StringID, LastID );
 
 				const auto NewSummary = GetGameSummary( Account.PUUID, Account.Region, StringID );
 
 				if ( NewSummary.has_value() )
 				{
-					Account.Summaries.push_back( *NewSummary );
-					Event::OnEndGame::Trigger( ChannelID, *NewSummary );
+					GameSummary Summary     = NewSummary.value();
+					const auto  CurrentRank = Globals::LeagueAPI->GetLeagueRank( Account );
+
+					if ( Account.LastKnownRank.has_value() )
+					{
+						int32_t OldLP = RankToLP( Account.LastKnownRank.value() );
+						int32_t NewLP = RankToLP( CurrentRank.value() );
+						int32_t Delta = NewLP - OldLP;
+
+						if ( Delta != 0 )
+						{
+							Summary.DeltaLP = Delta;
+						}
+					}
+
+					Event::OnEndGame::Trigger( ChannelID, Summary );
+					Account.Summaries.push_back( Summary );
 				}
 			}
+		}
+
+		void Capitalize( std::string& String )
+		{
+			if ( String.empty() ) return;
+
+			std::ranges::transform( String, String.begin(), [] ( const unsigned char c ) { return std::tolower( c ); } );
+
+			String[ 0 ] = std::toupper( String[ 0 ] );
 		}
 
 		void Work()
@@ -351,11 +317,11 @@ namespace Components
 
 				auto Refresh = [&] ( const Database::Streamer& Streamer )
 				{
-					auto ActiveAccount = Globals::LeagueAPI->GetActiveAccount( Streamer.StreamerID );
+					const auto ActiveAccount = Globals::LeagueAPI->GetActiveAccount( Streamer.StreamerID );
 
-					if ( ActiveAccount.has_value() )
+					if ( ActiveAccount )
 					{
-						RefreshSession( Streamer.StreamerID, ActiveAccount.value() );
+						RefreshSession( Streamer.StreamerID, *ActiveAccount );
 					}
 				};
 
@@ -363,6 +329,65 @@ namespace Components
 				std::this_thread::sleep_for( std::chrono::seconds( 15 ) );
 			}
 		}
+	}
+
+	int32_t RankToLP( const RankEntry& Entry )
+	{
+		const auto TierIterator = TierBase.find( Entry.Rank );
+		if ( TierIterator == TierBase.end() ) return 0;
+
+		const bool IsApexRank = Entry.Rank == "MASTER" || Entry.Rank == "GRANDMASTER" || Entry.Rank == "CHALLENGER";
+		if ( IsApexRank ) return TierIterator->second + Entry.LP;
+
+		const auto DivisionIterator = DivisionBase.find( Entry.Division );
+		if ( DivisionIterator == DivisionBase.end() ) return 0;
+
+		return TierIterator->second + DivisionIterator->second + Entry.LP;
+	}
+
+	RankEntry LPToRank( const int32_t LP )
+	{
+		static constexpr std::array Ranks =
+		{
+			std::pair{ "IRON", 0 }, std::pair{ "BRONZE", 400 },
+			std::pair{ "SILVER", 800 }, std::pair{ "GOLD", 1200 },
+			std::pair{ "PLATINUM", 1600 }, std::pair{ "EMERALD", 2000 },
+			std::pair{ "DIAMOND", 2400 }, std::pair{ "MASTER", 2800 }
+		};
+
+		static constexpr std::array Divisions =
+		{
+			std::pair{ "IV", 0 }, std::pair{ "III", 100 },
+			std::pair{ "II", 200 }, std::pair{ "I", 300 }
+		};
+
+		if ( LP >= 2800 ) return { .Rank = "MASTER", .Division = {}, .LP = LP - 2800, .IsApex = true };
+
+		int32_t     RankBase = 0;
+		std::string TierName;
+		for ( auto& [ Name, Base ] : Ranks | std::views::reverse )
+		{
+			if ( LP >= Base )
+			{
+				TierName = Name;
+				RankBase = Base;
+				break;
+			}
+		}
+
+		int32_t     Remainder = LP - RankBase;
+		std::string DivisionName;
+		for ( auto& [ Name, Base ] : Divisions | std::views::reverse )
+		{
+			if ( Remainder >= Base )
+			{
+				DivisionName = Name;
+				Remainder -= Base;
+				break;
+			}
+		}
+
+		return { .Rank = TierName, .Division = DivisionName, .LP = Remainder, .IsApex = false };
 	}
 
 	RiotAccount::RiotAccount( std::string PUUID ) : PUUID( std::move( PUUID ) )
@@ -400,7 +425,8 @@ namespace Components
 			J[ "region" ].get_to( this->Region );
 		}
 
-		this->Valid = true;
+		this->LastKnownRank = Globals::LeagueAPI->GetLeagueRank( *this );
+		this->Valid         = true;
 	}
 
 	RiotData::RiotData( std::string Channel ) : TwitchChannel( std::move( Channel ) )
@@ -505,14 +531,14 @@ namespace Components
 		return this->GET( REGIONAL_HOST, Target );
 	}
 
-	std::optional<RiotAccount> Riot::GetActiveAccount( const std::string_view StreamerID )
+	RiotAccount* Riot::GetActiveAccount( const std::string_view StreamerID )
 	{
-		const auto& StreamerData = this->Data[ std::string( StreamerID ) ];
-		const auto  Iterator     = std::ranges::find_if( StreamerData.Accounts, [] ( const RiotAccount& Account ) { return !Account.Summaries.empty(); } );
+		auto&      StreamerData = this->Data[ std::string( StreamerID ) ];
+		const auto Iterator     = std::ranges::find_if( StreamerData.Accounts, [] ( const RiotAccount& Account ) { return !Account.Summaries.empty(); } );
 
-		if ( Iterator == StreamerData.Accounts.end() ) return std::nullopt;
+		if ( Iterator == StreamerData.Accounts.end() ) return nullptr;
 
-		return *Iterator;
+		return &*Iterator;
 	}
 
 	std::optional<ActiveGame> Riot::GetCurrentGame( std::string_view StreamerID )
@@ -549,6 +575,8 @@ namespace Components
 
 		for ( const auto& Participant : J[ "participants" ] )
 		{
+			if ( !Participant.contains( "puuid" ) || Participant[ "puuid" ].is_null() ) continue;
+
 			const auto PUUID = Participant[ "puuid" ].get<std::string>();
 
 			if ( PUUID == ActiveAccount->PUUID ) ChampionID = Participant[ "championId" ];
@@ -576,18 +604,49 @@ namespace Components
 			}
 		}
 
-		const auto [ Rank, Tier, LP, IsApex ] = LPToRank( GetAverageLP( Ranks ) );
+		auto [ Rank, Division, LP, IsApex ] = LPToRank( GetAverageLP( Ranks ) );
 
-		const auto AverageEloFormatted = IsApex ? std::format( "average LP is {} LP", LP ) : std::format( "average rank is {} {} {} LP", Rank, Tier, LP );
+		Capitalize( Rank );
+
+		const auto AverageEloFormatted = IsApex ? std::format( "average LP is {} LP", LP ) : std::format( "average rank is {} {} {} LP", Rank, Division, LP );
 
 		return ActiveGame{ .PUUID = ActiveAccount->PUUID, .Champion = ChampionMap[ ChampionID ], .AverageElo = AverageEloFormatted };
 	}
 
-	std::optional<std::string> Riot::GetLeagueRank( std::string_view StreamerID )
+	std::optional<RankEntry> Riot::GetLeagueRank( const RiotAccount& Account )
+	{
+		url RankURL;
+		RankURL.set_path( "/lol/league/v4/entries/by-puuid" );
+		RankURL.segments().push_back( Account.PUUID );
+
+		auto [ Status, RankBody ] = this->GET( ServerHost( Account.Region ), RankURL.encoded_path() );
+
+		if ( Status != 200 )
+		{
+			return std::nullopt;
+		}
+
+		const auto Entries = json::parse( RankBody );
+		const auto SoloQ   = std::ranges::find_if( Entries, [] ( const json& E )
+		{
+			return E[ "queueType" ].get<std::string>() == "RANKED_SOLO_5x5";
+		} );
+
+		auto              Rank     = ( *SoloQ )[ "tier" ].get<std::string>();
+		const std::string Division = ( *SoloQ )[ "rank" ];
+		const int32_t     LP       = ( *SoloQ )[ "leaguePoints" ];
+		const bool        IsApex   = Rank == "MASTER" || Rank == "GRANDMASTER" || Rank == "CHALLENGER";
+
+		Capitalize( Rank );
+
+		return RankEntry{ .Rank = Rank, .Division = Division, .LP = LP, .IsApex = IsApex };
+	}
+
+	std::optional<std::string> Riot::GetLeagueRankFormatted( std::string_view StreamerID )
 	{
 		const auto ActiveAccount = this->GetActiveAccount( StreamerID );
 
-		if ( !ActiveAccount.has_value() ) return std::nullopt;
+		if ( !ActiveAccount ) return std::nullopt;
 
 		url RankURL;
 		RankURL.set_path( "/lol/league/v4/entries/by-puuid" );
@@ -606,19 +665,19 @@ namespace Components
 			return E[ "queueType" ].get<std::string>() == "RANKED_SOLO_5x5";
 		} );
 
-		const std::string Tier     = ( *SoloQ )[ "tier" ];
+		std::string       Rank     = ( *SoloQ )[ "tier" ].get<std::string>();
 		const std::string Division = ( *SoloQ )[ "rank" ];
 		const int32_t     LP       = ( *SoloQ )[ "leaguePoints" ];
-		bool              IsApex   = Tier == "MASTER" || Tier == "GRANDMASTER" || Tier == "CHALLENGER";
+		bool              IsApex   = Rank == "MASTER" || Rank == "GRANDMASTER" || Rank == "CHALLENGER";
+
+		Capitalize( Rank );
 
 		if ( IsApex )
 		{
-			return std::format( "{} is currently {} {} LP", StreamerID, Tier, LP );
+			return std::format( "{} is currently {} {} LP", StreamerID, Rank, LP );
 		}
-		else
-		{
-			return std::format( "{} is currently {} {} {} LP", StreamerID, Tier, Division, LP );
-		}
+
+		return std::format( "{} is currently {} {} {} LP", StreamerID, Rank, Division, LP );
 	}
 
 	std::optional<std::string> Riot::GetPUUID( const std::string_view SummonerName, const std::string_view TagLine )

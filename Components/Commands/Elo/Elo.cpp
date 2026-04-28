@@ -6,7 +6,7 @@ namespace Components::Operation
 {
 	void Elo( const Command* Data )
 	{
-		const auto Response = Globals::LeagueAPI->GetLeagueRank( Data->ChannelID );
+		const auto Response = Globals::LeagueAPI->GetLeagueRankFormatted( Data->ChannelID );
 
 		if ( Response.has_value() )
 		{

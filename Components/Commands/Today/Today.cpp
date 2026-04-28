@@ -12,7 +12,7 @@ namespace Components::Operation
 			auto Data          = Globals::DB->GetStreamer( StreamerID );
 			auto ActiveAccount = Globals::LeagueAPI->GetActiveAccount( StreamerID );
 
-			if ( !Data.has_value() || !ActiveAccount.has_value() )
+			if ( !Data.has_value() || !ActiveAccount )
 			{
 				return std::format( "No account linked to {}", StreamerID );
 			}
