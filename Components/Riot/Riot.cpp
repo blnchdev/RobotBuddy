@@ -608,7 +608,7 @@ namespace Components
 
 		const std::string Tier     = ( *SoloQ )[ "tier" ];
 		const std::string Division = ( *SoloQ )[ "rank" ];
-		const std::string LP       = ( *SoloQ )[ "leaguePoints" ];
+		const int32_t     LP       = ( *SoloQ )[ "leaguePoints" ];
 		bool              IsApex   = Tier == "MASTER" || Tier == "GRANDMASTER" || Tier == "CHALLENGER";
 
 		if ( IsApex )
