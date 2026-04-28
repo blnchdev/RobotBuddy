@@ -73,15 +73,15 @@ namespace Components::Operation
 			const auto  RiotData = Globals::LeagueAPI->GetData( Data->ChannelID );
 			std::string Response = "Accounts: ";
 
+			if ( RiotData.Accounts.empty() )
+			{
+				return std::format( "{} has no accounts registered", Data->ChannelID );
+			}
+
 			for ( const auto&& [ Index, Account ] : RiotData.Accounts | std::views::enumerate )
 			{
 				if ( Index != 0 ) Response += " / ";
 				Response += std::format( "{}#{} ({})", Account.SummonerName, Account.TagLine, Account.Region );
-			}
-
-			if ( RiotData.Accounts.empty() )
-			{
-				return std::format( "{} has no accounts registered", Data->ChannelID );
 			}
 
 			return Response;
