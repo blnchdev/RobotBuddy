@@ -1,5 +1,4 @@
 #include <functional>
-#include <iostream>
 #include <string>
 #include <string_view>
 
@@ -16,61 +15,6 @@
 
 namespace
 {
-	struct ParsedCommand
-	{
-		std::string_view Command;
-		std::string_view Argument1;
-		std::string_view Argument2;
-	};
-
-	struct ParsedRiotAccount
-	{
-		std::string_view Region;
-		std::string_view Name;
-		std::string_view Tag;
-	};
-
-	ParsedCommand ParseCommand( std::string_view Message )
-	{
-		ParsedCommand Result{};
-
-		size_t Position = Message.find( ' ' );
-		if ( Position == std::string_view::npos )
-		{
-			Result.Command = Message;
-			return Result;
-		}
-
-		Result.Command = Message.substr( 0, Position );
-		Message.remove_prefix( Position + 1 );
-
-		Position = Message.find( ' ' );
-		if ( Position == std::string_view::npos )
-		{
-			Result.Argument1 = Message;
-			return Result;
-		}
-
-		Result.Argument1 = Message.substr( 0, Position );
-		Message.remove_prefix( Position + 1 );
-
-		Result.Argument2 = Message;
-
-		return Result;
-	}
-
-	ParsedRiotAccount ParseAccount( std::string_view Argument )
-	{
-		const size_t Delimiter = Argument.find( ':' );
-		const size_t Hash      = Argument.find( '#' );
-
-		const std::string_view Region = Argument.substr( 0, Delimiter );
-		const std::string_view User   = Argument.substr( Delimiter + 1, Hash - ( Delimiter + 1 ) );
-		const std::string_view Tag    = Argument.substr( Hash + 1 );
-
-		return { Region, User, Tag };
-	}
-
 	void OnMessage( const Components::TwitchMessage& Message )
 	{
 		if ( Message.Text.empty() || Message.Text[ 0 ] != '!' ) return;
@@ -91,8 +35,6 @@ int main()
 	Globals::DB = std::make_unique<Database>( "Accounts.db" );
 	PrintDebug( "Loaded Database" );
 
-	( void )Globals::DB->UpdateStreamer( "milliemeowss", true, "🟦", "🟥" );
-
 	const auto Streamers = Globals::DB->GetStreamers();
 	PrintInfo( "DB: {} streamer(s)", Streamers.size() );
 
@@ -107,6 +49,7 @@ int main()
 	Globals::Bot->Login( ToJoin );
 
 	Globals::LeagueAPI = std::make_unique<Riot>( Environment::Get( "RIOT_API_KEY" ) );
+	Globals::LeagueAPI->InitializeDataDragon();
 	Globals::LeagueAPI->Connect( Streamers );
 	PrintDebug( "Loaded LeagueAPI" );
 

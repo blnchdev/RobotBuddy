@@ -2,7 +2,7 @@
 
 namespace Components::Event
 {
-	void OnEndGame::Trigger( std::string_view ChannelID, GameSummary& Summary )
+	void OnEndGame::Trigger( std::string_view ChannelID, const GameSummary& Summary )
 	{
 	}
 }

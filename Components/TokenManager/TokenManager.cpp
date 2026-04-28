@@ -40,10 +40,7 @@ namespace Components
 
 		Stream.handshake( ssl::stream_base::client );
 
-		std::string Body = "grant_type=refresh_token"
-		                   "&refresh_token=" + RefreshToken +
-		                   "&client_id=" + ClientID +
-		                   "&client_secret=" + ClientSecret;
+		std::string Body = std::format( "grant_type=refresh_token&refresh_token={}&client_id={}&client_secret={}", RefreshToken, ClientID, ClientSecret );
 
 		http::request<http::string_body> Request{ http::verb::post, "/oauth2/token", 11 };
 		Request.set( http::field::host, "id.twitch.tv" );

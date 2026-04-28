@@ -8,6 +8,6 @@ namespace Components::Event
 	class OnEndGame
 	{
 	public:
-		static void Trigger( std::string_view ChannelID, GameSummary& Summary );
+		static void Trigger( std::string_view ChannelID, const GameSummary& Summary );
 	};
 }

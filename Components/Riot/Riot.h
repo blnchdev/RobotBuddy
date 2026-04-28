@@ -33,6 +33,13 @@ namespace Components
 		double   VisionScore;
 	};
 
+	struct ActiveGame
+	{
+		std::string PUUID;
+		std::string Champion;
+		std::string AverageElo;
+	};
+
 	struct RiotAccount
 	{
 		std::string              SummonerName;
@@ -49,7 +56,8 @@ namespace Components
 	{
 		std::string TwitchChannel;
 
-		std::vector<RiotAccount> Accounts = {};
+		std::string              ActivePUUID = {};
+		std::vector<RiotAccount> Accounts    = {};
 
 		RiotData() = default;
 		explicit RiotData( std::string Channel );
@@ -66,10 +74,13 @@ namespace Components
 			std::string Body;
 		};
 
+		void                       InitializeDataDragon();
 		void                       Connect( const std::vector<Database::Streamer>& Streamers );
-		Response                   GET( std::string_view Host, std::string_view Target );
+		Response                   GET( std::string_view Host, std::string_view Target, bool NeedsAPI = true );
 		Response                   GET( std::string_view Target );
 		std::optional<RiotAccount> GetActiveAccount( std::string_view StreamerID );
+		std::optional<ActiveGame>  GetCurrentGame( std::string_view StreamerID );
+		std::optional<std::string> GetLeagueRank( std::string_view StreamerID );
 		std::optional<std::string> GetPUUID( std::string_view SummonerName, std::string_view TagLine );
 		RiotData&                  GetData( std::string_view StreamerID );
 		bool                       AddAccount( std::string_view StreamerID, std::string_view PUUID );

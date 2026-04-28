@@ -1,8 +1,11 @@
 #include "Commands.h"
 
 #include "Accounts/Accounts.h"
+#include "Active/Active.h"
 #include "Today/Today.h"
 #include "Components/TUI/TUI.h"
+#include "Elo/Elo.h"
+#include "OPGG/OPGG.h"
 
 namespace Components
 {
@@ -57,7 +60,7 @@ namespace Components
 
 		auto [ Operation, Argument1, Argument2 ] = ParseCommand( Message.Text );
 
-		Command SentCommand = { .ChannelID = ChannelID, .Operation = Operation, .Argument1 = Argument1, .Argument2 = Argument2, .Context = &Message };
+		const Command SentCommand = { .ChannelID = ChannelID, .Operation = Operation, .Argument1 = Argument1, .Argument2 = Argument2, .Context = &Message };
 
 		if ( Operation == "!accounts" )
 		{
@@ -68,6 +71,24 @@ namespace Components
 		if ( Operation == "!today" )
 		{
 			Operation::Today( &SentCommand );
+			return;
+		}
+
+		if ( Operation == "!opgg" )
+		{
+			Operation::OPGG( &SentCommand );
+			return;
+		}
+
+		if ( Operation == "!active" )
+		{
+			Operation::Active( &SentCommand );
+			return;
+		}
+
+		if ( Operation == "!elo" )
+		{
+			Operation::Elo( &SentCommand );
 		}
 	}
 }
