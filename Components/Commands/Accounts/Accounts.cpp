@@ -117,6 +117,12 @@ namespace Components::Operation
 
 	void Accounts( const Command* Data )
 	{
+		if ( !Data->Context->IsOwner || !Data->Context->IsModerator )
+		{
+			Globals::TwitchAPI->ReplyTo( *Data->Context, "You do not have the permissions required to run this command" );
+			return;
+		}
+
 		const auto SubCommand = Data->Argument1;
 
 		std::string Response;

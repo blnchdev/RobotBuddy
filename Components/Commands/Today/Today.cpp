@@ -9,8 +9,8 @@ namespace Components::Operation
 	{
 		std::string GetResponse( std::string_view StreamerID )
 		{
-			auto Data          = Globals::DB->GetStreamer( StreamerID );
-			auto ActiveAccount = Globals::LeagueAPI->GetActiveAccount( StreamerID );
+			const auto Data          = Globals::DB->GetStreamer( StreamerID );
+			const auto ActiveAccount = Globals::LeagueAPI->GetActiveAccount( StreamerID );
 
 			if ( !Data.has_value() || !ActiveAccount )
 			{
@@ -26,7 +26,7 @@ namespace Components::Operation
 
 			const float WinRate = Wins + Losses > 0 ? static_cast<float>( Wins ) / static_cast<float>( Wins + Losses ) * 100.f : 0.f;
 
-			std::string Response = std::format( "{}W/{}L Winrate {:.0f}% ", Wins, Losses, WinRate );
+			std::string Response = std::format( "{}W/{}L - {:.0f}% Winrate", Wins, Losses, WinRate );
 
 			for ( const auto& Summary : ActiveAccount->Summaries )
 			{
@@ -39,7 +39,7 @@ namespace Components::Operation
 
 	void Today( const Command* Data )
 	{
-		std::string Response = GetResponse( Data->ChannelID );
+		const std::string Response = GetResponse( Data->ChannelID );
 
 		Globals::TwitchAPI->ReplyTo( *Data->Context, Response );
 	}

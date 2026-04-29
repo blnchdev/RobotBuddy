@@ -26,6 +26,12 @@ namespace Components
 		bool        IsApex = false;
 	};
 
+	struct KDA
+	{
+		int32_t Kills, Deaths, Assists;
+		float   Ratio;
+	};
+
 	struct GameSummary
 	{
 		uint64_t    GameID;
@@ -33,8 +39,7 @@ namespace Components
 		std::string Role;
 
 		bool     Win;
-		int32_t  Kills, Deaths, Assists;
-		float    KDA;
+		KDA      KDA;
 		uint64_t Duration; // Seconds
 		uint64_t GameEnd;  // Unix
 		int32_t  CreepScore;

@@ -20,9 +20,9 @@ namespace Components
 		std::unordered_map<int32_t, std::string> ChampionMap = {};
 		std::unordered_map<std::string, int32_t> TierBase    =
 		{
-			{ "IRON", 0 }, { "BRONZE", 400 }, { "SILVER", 800 }, { "GOLD", 1200 },
-			{ "PLATINUM", 1600 }, { "EMERALD", 2000 }, { "DIAMOND", 2400 },
-			{ "MASTER", ApexLP }, { "GRANDMASTER", ApexLP }, { "CHALLENGER", ApexLP }
+			{ "Iron", 0 }, { "Bronze", 400 }, { "Silver", 800 }, { "Gold", 1200 },
+			{ "Platinum", 1600 }, { "Emerald", 2000 }, { "Diamond", 2400 },
+			{ "Master", ApexLP }, { "Grandmaster", ApexLP }, { "Challenger", ApexLP }
 		};
 		std::unordered_map<std::string, int32_t> DivisionBase =
 		{
@@ -143,7 +143,7 @@ namespace Components
 			PlayerData[ "deaths" ].get_to( D );
 			PlayerData[ "assists" ].get_to( A );
 
-			const float KDA = ( static_cast<float>( K ) + static_cast<float>( A ) ) / static_cast<float>( D );
+			const float Ratio = D == 0 ? -1.f : ( static_cast<float>( K ) + A ) / D;
 
 			return GameSummary
 			{
@@ -151,10 +151,13 @@ namespace Components
 				.Champion = PlayerData[ "championName" ],
 				.Role = PlayerData[ "individualPosition" ],
 				.Win = PlayerData[ "win" ].get<bool>(),
-				.Kills = K,
-				.Deaths = D,
-				.Assists = A,
-				.KDA = KDA,
+				.KDA =
+				{
+					.Kills = K,
+					.Deaths = D,
+					.Assists = A,
+					.Ratio = Ratio
+				},
 				.Duration = GameDuration,
 				.GameEnd = GameStart + GameDuration * 1000ULL,
 				.CreepScore = PlayerData[ "totalMinionsKilled" ].get<int32_t>() + PlayerData[ "neutralMinionsKilled" ].get<int32_t>(),
@@ -237,7 +240,7 @@ namespace Components
 					GameSummary Summary     = NewSummary.value();
 					const auto  CurrentRank = Globals::LeagueAPI->GetLeagueRank( Account );
 
-					if ( Account.LastKnownRank.has_value() )
+					if ( Account.LastKnownRank.has_value() && CurrentRank.has_value() )
 					{
 						int32_t OldLP = RankToLP( Account.LastKnownRank.value() );
 						int32_t NewLP = RankToLP( CurrentRank.value() );
@@ -247,6 +250,17 @@ namespace Components
 						{
 							Summary.DeltaLP = Delta;
 						}
+
+						PrintDebug( "Delta {} (OldRank: {} {} {} LP / NewRank: {} {} {} LP)", Delta,
+						            Account.LastKnownRank->Rank, Account.LastKnownRank->Division, Account.LastKnownRank->LP,
+						            CurrentRank->Rank, CurrentRank->Division, CurrentRank->LP
+						          );
+
+						Account.LastKnownRank = CurrentRank;
+					}
+					else
+					{
+						PrintWarn( "{}#{} LastKnownRank? {} / CurrentRank?", Account.SummonerName, Account.TagLine, Account.LastKnownRank.has_value(), CurrentRank.has_value() );
 					}
 
 					Event::OnEndGame::Trigger( ChannelID, Summary );
@@ -349,10 +363,10 @@ namespace Components
 	{
 		static constexpr std::array Ranks =
 		{
-			std::pair{ "IRON", 0 }, std::pair{ "BRONZE", 400 },
-			std::pair{ "SILVER", 800 }, std::pair{ "GOLD", 1200 },
-			std::pair{ "PLATINUM", 1600 }, std::pair{ "EMERALD", 2000 },
-			std::pair{ "DIAMOND", 2400 }, std::pair{ "MASTER", 2800 }
+			std::pair{ "Iron", 0 }, std::pair{ "Bronze", 400 },
+			std::pair{ "Silver", 800 }, std::pair{ "Gold", 1200 },
+			std::pair{ "Platinum", 1600 }, std::pair{ "Emerald", 2000 },
+			std::pair{ "Diamond", 2400 }, std::pair{ "Master", 2800 }
 		};
 
 		static constexpr std::array Divisions =
@@ -668,7 +682,7 @@ namespace Components
 		std::string       Rank     = ( *SoloQ )[ "tier" ].get<std::string>();
 		const std::string Division = ( *SoloQ )[ "rank" ];
 		const int32_t     LP       = ( *SoloQ )[ "leaguePoints" ];
-		bool              IsApex   = Rank == "MASTER" || Rank == "GRANDMASTER" || Rank == "CHALLENGER";
+		const bool        IsApex   = Rank == "MASTER" || Rank == "GRANDMASTER" || Rank == "CHALLENGER";
 
 		Capitalize( Rank );
 
