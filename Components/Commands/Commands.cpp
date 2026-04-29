@@ -5,6 +5,7 @@
 #include "Today/Today.h"
 #include "Components/TUI/TUI.h"
 #include "Elo/Elo.h"
+#include "KDA/KDA.h"
 #include "OPGG/OPGG.h"
 
 namespace Components
@@ -62,13 +63,13 @@ namespace Components
 
 		const Command SentCommand = { .ChannelID = ChannelID, .Operation = Operation, .Argument1 = Argument1, .Argument2 = Argument2, .Context = &Message };
 
-		if ( Operation == "!accounts" )
+		if ( Operation == "!accounts" || Operation == "!account" )
 		{
 			Operation::Accounts( &SentCommand );
 			return;
 		}
 
-		if ( Operation == "!today" )
+		if ( Operation == "!today" || Operation == "!score" )
 		{
 			Operation::Today( &SentCommand );
 			return;
@@ -80,7 +81,7 @@ namespace Components
 			return;
 		}
 
-		if ( Operation == "!active" )
+		if ( Operation == "!active" || Operation == "!current" )
 		{
 			Operation::Active( &SentCommand );
 			return;
@@ -89,6 +90,12 @@ namespace Components
 		if ( Operation == "!elo" )
 		{
 			Operation::Elo( &SentCommand );
+			return;
+		}
+
+		if ( Operation == "!kda" )
+		{
+			Operation::KDA( &SentCommand );
 		}
 	}
 }
