@@ -19,6 +19,8 @@ namespace
 	{
 		if ( Message.Text.empty() || Message.Text[ 0 ] != '!' ) return;
 
+		PrintDebug( "Line: {}", Message.Text );
+
 		Components::Dispatch( Message );
 	}
 }
@@ -26,6 +28,7 @@ namespace
 int main()
 {
 	using namespace Components;
+	SetConsoleOutputCP( CP_UTF8 );
 
 	PrintSection( "RobotBuddy Pre-Alpha!" );
 

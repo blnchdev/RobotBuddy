@@ -145,24 +145,29 @@ namespace Components
 		while ( true )
 		{
 			WebSocket.read( Buffer );
-			auto Raw = beast::buffers_to_string( Buffer.data() );
+			std::string Raw = beast::buffers_to_string( Buffer.data() );
 			Buffer.clear();
 
-			std::istringstream Stream( Raw );
-			std::string        Line;
-
-			while ( std::getline( Stream, Line ) )
+			std::string_view View = Raw;
+			while ( !View.empty() )
 			{
-				if ( Line.starts_with( "PING" ) )
+				const auto End  = View.find( "\r\n" );
+				auto       Line = std::string( End == std::string_view::npos ? View : View.substr( 0, End ) );
+
+				if ( !Line.empty() )
 				{
-					SendRaw( "PONG :tmi.twitch.tv" );
-					continue;
+					if ( Line.starts_with( "PING" ) )
+					{
+						SendRaw( "PONG :tmi.twitch.tv" );
+					}
+					else if ( auto Message = ParseMessage( Line ); Message.has_value() )
+					{
+						OnMessage( Message.value() );
+					}
 				}
 
-				if ( auto Message = ParseMessage( Line ); Message.has_value() )
-				{
-					OnMessage( Message.value() );
-				}
+				if ( End == std::string_view::npos ) break;
+				View = View.substr( End + 2 );
 			}
 		}
 	}

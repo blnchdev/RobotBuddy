@@ -11,7 +11,7 @@ namespace Components::Operation
 		{
 			auto IsJunk = [] ( const unsigned char c )
 			{
-				return std::isspace( c ) || c > 0x7E || c < 0x20;
+				return std::isspace( c ) || c < 0x20;
 			};
 
 			size_t Start = 0;
@@ -34,6 +34,22 @@ namespace Components::Operation
 			return { SummonerName, TagLine };
 		}
 
+		size_t LengthUTF8( std::string_view String )
+		{
+			size_t Length = 0;
+
+			auto Count = [&] ( const unsigned char c )
+			{
+				if ( ( c & 0xC0 ) != 0x80 )
+				{
+					Length++;
+				}
+			};
+
+			std::ranges::for_each( String, Count );
+			return Length;
+		}
+
 		std::string Add( const Command* Data )
 		{
 			std::string Response;
@@ -45,9 +61,9 @@ namespace Components::Operation
 
 			const auto [ SummonerName, TagLine ] = ParseAccount( Data->Argument2 );
 
-			if ( SummonerName.empty() || TagLine.empty() || SummonerName.size() > 16 || TagLine.size() > 5 )
+			if ( SummonerName.empty() || TagLine.empty() || LengthUTF8( SummonerName ) > 16 || LengthUTF8( TagLine ) > 5 )
 			{
-				PrintDebug( "'{}' / '{}'", SummonerName, TagLine );
+				PrintDebug( "'{}' size({}) / '{}' size({})", SummonerName, LengthUTF8( SummonerName ), TagLine, LengthUTF8( TagLine ) );
 				return "Malformed Summoner Name, proper usage is: !accounts add <username#tagline>. e.g.: !accounts add Azzapp#31415";
 			}
 
@@ -98,9 +114,8 @@ namespace Components::Operation
 
 			const auto [ SummonerName, TagLine ] = ParseAccount( Data->Argument2 );
 
-			if ( SummonerName.empty() || TagLine.empty() || SummonerName.size() > 16 || TagLine.size() > 5 )
+			if ( SummonerName.empty() || TagLine.empty() || LengthUTF8( SummonerName ) > 16 || LengthUTF8( TagLine ) > 5 )
 			{
-				PrintDebug( "'{}' / '{}'", SummonerName, TagLine );
 				return "Malformed Summoner Name, proper usage is: !accounts remove <username#tagline>. e.g.: !accounts remove Azzapp#31415";
 			}
 
@@ -117,7 +132,7 @@ namespace Components::Operation
 
 	void Accounts( const Command* Data )
 	{
-		if ( !Data->Context->IsOwner || !Data->Context->IsModerator )
+		if ( !Data->Context->IsOwner && !Data->Context->IsModerator )
 		{
 			Globals::TwitchAPI->ReplyTo( *Data->Context, "You do not have the permissions required to run this command" );
 			return;
