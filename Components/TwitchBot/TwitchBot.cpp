@@ -187,13 +187,13 @@ namespace Components
 		co_await WebSocket.async_write( asio::buffer( Line ), asio::use_awaitable );
 	}
 
-	void TwitchBot::SendChat( const std::string_view Channel, const std::string Message )
+	void TwitchBot::SendChat( const std::string_view Channel, const std::string_view Message )
 	{
-		std::string Line = "PRIVMSG " + std::string( Channel ) + " : " + std::string( Message );
+		std::string Line = "PRIVMSG #" + std::string( Channel ) + " : " + std::string( Message );
 		SendRaw( Line );
 	}
 
-	void TwitchBot::ReplyTo( const TwitchMessage& Parent, const std::string Message )
+	void TwitchBot::ReplyTo( const TwitchMessage& Parent, const std::string_view Message )
 	{
 		std::string Line = "@reply-parent-msg-id=" + Parent.ID + " PRIVMSG " + Parent.Channel + " :" + std::string( Message );
 		SendRaw( Line );
