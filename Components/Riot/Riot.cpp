@@ -212,7 +212,6 @@ namespace Components
 						if ( LastGameStart != 0 )
 						{
 							const auto Delta = LastGameStart - Summary->GameEnd;
-							PrintDebug( "Delta: {}", Delta );
 
 							if ( Delta >= 2ULL * 60ULL * 60ULL * 1000ULL ) break;
 						}
@@ -270,8 +269,6 @@ namespace Components
 
 		asio::awaitable<void> Work()
 		{
-			PrintOk( "Work()" );
-
 			auto GetLastGameTimestamp = [&] ( RiotAccount& Account ) -> asio::awaitable<int64_t>
 			{
 				const auto LastGame = co_await GetLastGame( Account );
@@ -672,11 +669,6 @@ namespace Components
 		{
 			auto Result = co_await std::move( Task );
 			if ( Result.has_value() ) Ranks.push_back( Result.value() );
-		}
-
-		for ( const auto& Rank : Ranks )
-		{
-			PrintDebug( "Rank: {} {} {}LP", Rank.Rank, Rank.Division, Rank.LP );
 		}
 
 		auto [ Rank, Division, LP, IsApex ] = LPToRank( GetAverageLP( Ranks ) );
