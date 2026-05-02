@@ -39,6 +39,50 @@ namespace Components
 			return Sum / static_cast<int>( Entries.size() );
 		}
 
+		RoleEnum ToRoleEnum( const std::string_view String )
+		{
+			static const std::unordered_map<std::string_view, RoleEnum> Map =
+			{
+				{ "TOP", TOP },
+				{ "JUNGLE", JUNGLE },
+				{ "MIDDLE", MIDDLE },
+				{ "BOTTOM", ADC },
+				{ "UTILITY", SUPPORT }
+			};
+
+			if ( const auto Iterator = Map.find( String ); Iterator != Map.end() ) return Iterator->second;
+
+			return NONE;
+		}
+
+		GameType ToGameType( const uint32_t ID )
+		{
+			// According to https://static.developer.riotgames.com/docs/lol/queues.json
+
+			switch ( ID )
+			{
+			case 400: // 5v5 Draft Pick games
+			case 430: // 5v5 Blind Pick games
+			case 480: // Swiftplay Games
+			case 490: // Normal (Quickplay)
+				return UNRANKED;
+			case 420: // 5v5 Ranked Solo games
+				return SOLOQ;
+			case 440: // 5v5 Ranked Flex games
+				return FLEX;
+			case 450:  // 5v5 ARAM games
+			case 2400: // ARAM: Mayhem
+				return ARAM;
+			case 700: // Summoner's Rift Clash games
+			case 720: // ARAM Clash games
+				return CLASH;
+			case 1710: // 16 player lobby
+				return ARENA;
+			}
+
+			return ROTATING; // This should probably be a case, and default should be a 'UNKNOWN' type, iunno...
+		}
+
 		std::string_view RegionalHost( const std::string_view Region )
 		{
 			using namespace std::string_view_literals;
@@ -137,6 +181,8 @@ namespace Components
 
 			const uint64_t GameStart    = Info[ "gameStartTimestamp" ].get<uint64_t>();
 			const uint64_t GameDuration = Info[ "gameDuration" ].get<uint64_t>();
+			const auto     RoleString   = Info[ "individualPosition" ].is_string() ? Info[ "individualPosition" ].get<std::string>() : std::string( "NONE" );
+			uint32_t       QueueID      = Info[ "queueId" ];
 
 			int32_t K, D, A;
 			PlayerData[ "kills" ].get_to( K );
@@ -149,7 +195,8 @@ namespace Components
 			{
 				.GameID = ExtractGameID( GameID ),
 				.Champion = PlayerData[ "championName" ],
-				.Role = PlayerData[ "individualPosition" ],
+				.Role = ToRoleEnum( RoleString ),
+				.Type = ToGameType( QueueID ),
 				.Win = PlayerData[ "win" ].get<bool>(),
 				.KDA =
 				{
@@ -275,9 +322,10 @@ namespace Components
 				co_return LastGame.has_value() ? LastGame->GameEnd : 0;
 			};
 
-			auto PopulateLastSession = [&] ( const Database::Streamer& Streamer ) -> asio::awaitable<void>
+			auto PopulateLastSession = [&GetLastGameTimestamp] ( const Database::Streamer& Streamer ) -> asio::awaitable<void>
 			{
 				auto& RiotData = Globals::LeagueAPI->GetData( Streamer.StreamerID );
+				PrintDebug( "Streamer {} has {} accounts", Streamer.StreamerID, RiotData.Accounts.size() );
 				if ( RiotData.Accounts.empty() ) co_return;
 
 				const auto ActiveGame = co_await Globals::LeagueAPI->GetCurrentGame( Streamer.StreamerID );
@@ -294,6 +342,7 @@ namespace Components
 					for ( auto& Account : RiotData.Accounts )
 					{
 						const auto Timestamp = co_await GetLastGameTimestamp( Account );
+
 						if ( Timestamp > LatestTimestamp )
 						{
 							LatestTimestamp = Timestamp;
@@ -301,7 +350,12 @@ namespace Components
 						}
 					}
 
-					if ( !LatestActive ) co_return;
+					if ( !LatestActive )
+					{
+						PrintDebug( "No LatestActive for {}", Streamer.StreamerID );
+						co_return;
+					}
+
 					RiotData.ActivePUUID = LatestActive->PUUID;
 				}
 
@@ -313,6 +367,7 @@ namespace Components
 				if ( Iterator != RiotData.Accounts.end() ) co_await RefreshSession( Streamer.StreamerID, *Iterator );
 			};
 
+			PrintDebug( "First Pass" );
 			// First pass
 			{
 				const auto Streamers = Globals::DB->GetStreamers();
@@ -321,13 +376,21 @@ namespace Components
 
 			asio::steady_timer Timer{ co_await asio::this_coro::executor };
 
+			PrintDebug( "Work Loop" );
 			while ( true )
 			{
 				const auto Streamers = Globals::DB->GetStreamers();
+				PrintDebug( "Streamers::Size = {}", Streamers.size() );
+
 				for ( const auto& Streamer : Streamers )
 				{
+					PrintDebug( "Working on {}...", Streamer.StreamerID );
 					const auto ActiveAccount = Globals::LeagueAPI->GetActiveAccount( Streamer.StreamerID );
-					if ( ActiveAccount ) co_await RefreshSession( Streamer.StreamerID, *ActiveAccount );
+					if ( ActiveAccount )
+					{
+						PrintDebug( "ActiveAccount for {}: {}#{}", Streamer.StreamerID, ActiveAccount->SummonerName, ActiveAccount->TagLine );
+						co_await RefreshSession( Streamer.StreamerID, *ActiveAccount );
+					}
 				}
 
 				Timer.expires_after( std::chrono::seconds( 15 ) );
@@ -518,7 +581,14 @@ namespace Components
 
 		if ( Pending > 0 ) Ready.get_future().wait();
 
-		asio::co_spawn( Globals::IOC, Work(), asio::detached );
+		asio::co_spawn( Globals::IOC, Work(), [] ( std::exception_ptr E )
+		{
+			if ( E )
+			{
+				try { std::rethrow_exception( E ); }
+				catch ( const std::exception& Ex ) { PrintError( "Work() threw: {}", Ex.what() ); }
+			}
+		} );
 	}
 
 	asio::awaitable<Riot::Response> Riot::GET( std::string_view Host, std::string_view Target, bool NeedsAPI )

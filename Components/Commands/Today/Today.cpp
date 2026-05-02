@@ -20,10 +20,7 @@ namespace Components::Operation
 
 			PrintDebug( "ActiveAccount: {}", ActiveAccount->SummonerName );
 
-			const auto Wins = static_cast<uint32_t>( std::ranges::count
-				(
-				 ActiveAccount->Summaries, true, &GameSummary::Win
-				) );
+			const auto Wins = static_cast<uint32_t>( std::ranges::count( ActiveAccount->Summaries, true, &GameSummary::Win ) );
 
 			const auto Losses = static_cast<uint32_t>( ActiveAccount->Summaries.size() ) - Wins;
 

@@ -48,8 +48,8 @@ namespace Components
 		void                  Part( std::string_view Channel );
 		asio::awaitable<void> Run( const MessageHandler& OnMessage );
 
-		void SendChat( std::string_view Channel, std::string Message );
-		void ReplyTo( const TwitchMessage& Parent, std::string Message );
+		void SendChat( std::string_view Channel, std::string_view Message );
+		void ReplyTo( const TwitchMessage& Parent, std::string_view Message );
 
 	private:
 		void                  SendRaw( std::string& Line );

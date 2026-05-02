@@ -43,11 +43,22 @@ namespace Components
 		ROTATING = 6
 	};
 
-	struct _GameSummary
+	enum RoleEnum
 	{
-		uint64_t GameID;
-		int32_t  ChampionID;
-		GameType Type;
+		TOP     = 0,
+		JUNGLE  = 1,
+		MIDDLE  = 2,
+		ADC     = 3,
+		SUPPORT = 4,
+		NONE    = 5
+	};
+
+	struct GameSummary
+	{
+		uint64_t    GameID;
+		std::string Champion;
+		RoleEnum    Role = NONE;
+		GameType    Type;
 
 		bool Win;
 		KDA  KDA;
@@ -59,22 +70,6 @@ namespace Components
 		double  VisionScore;
 
 		int32_t DeltaLP = 0;
-	};
-
-	struct GameSummary
-	{
-		uint64_t    GameID;
-		std::string Champion;
-		std::string Role;
-
-		bool     Win;
-		KDA      KDA;
-		uint64_t Duration; // Seconds
-		uint64_t GameEnd;  // Unix
-		int32_t  CreepScore;
-		double   VisionScore;
-
-		std::optional<int32_t> DeltaLP = std::nullopt;
 	};
 
 	struct ActiveGame
