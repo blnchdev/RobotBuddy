@@ -1,5 +1,7 @@
 #include "API.h"
 
+#include "Globals/Globals.h"
+
 namespace Components
 {
 	namespace
@@ -30,10 +32,10 @@ namespace Components
 		}
 	}
 
-	API::API() : Acceptor( IOC, { tcp::v4(), PORT } )
+	API::API() : Acceptor( Globals::IOC, { tcp::v4(), PORT } )
 	{
-		co_spawn( IOC, Listener( this->Acceptor ), asio::detached );
+		// co_spawn( IOC, Listener( this->Acceptor ), asio::detached );
 
-		this->Worker = std::jthread( [&] { IOC.run(); } );
+		// this->Worker = std::jthread( [&] { IOC.run(); } );
 	}
 }

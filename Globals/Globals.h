@@ -18,4 +18,8 @@ namespace Globals
 	inline std::unique_ptr<Components::Riot>      LeagueAPI = nullptr;
 	inline std::unique_ptr<Components::Database>  DB        = nullptr;
 	inline std::unique_ptr<Components::API>       BotAPI    = nullptr;
+
+	// Network Stuff
+	inline boost::asio::io_context          IOC = {};
+	inline boost::asio::executor_work_guard Work{ make_work_guard( IOC ) };
 }

@@ -7,14 +7,13 @@ namespace Components
 {
 	struct Command
 	{
-		std::string_view ChannelID;
+		TwitchMessage Context;
 
-		std::string_view Operation;
-		std::string_view Argument1;
-		std::string_view Argument2;
-
-		const TwitchMessage* Context;
+		std::string ChannelName;
+		std::string Operation;
+		std::string Argument1;
+		std::string Argument2;
 	};
 
-	void Dispatch( const TwitchMessage& Message );
+	asio::awaitable<void> Dispatch( const TwitchMessage& Message );
 }

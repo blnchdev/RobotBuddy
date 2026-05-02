@@ -42,21 +42,22 @@ namespace Components
 
 		TwitchBot( TokenManager& Tokens, std::string_view Nick );
 
-		void Connect();
-		void Login( std::span<const std::string_view> ChannelsToJoin );
-		void Join( std::string_view Channel );
-		void Part( std::string_view Channel );
-		void Run( const MessageHandler& OnMessage );
-		void SendChat( std::string_view Channel, std::string_view Message );
-		void ReplyTo( const TwitchMessage& Parent, std::string_view Message );
+		void                  Connect();
+		void                  Login( std::span<const std::string_view> ChannelsToJoin );
+		void                  Join( std::string_view Channel );
+		void                  Part( std::string_view Channel );
+		asio::awaitable<void> Run( const MessageHandler& OnMessage );
+
+		void SendChat( std::string_view Channel, std::string Message );
+		void ReplyTo( const TwitchMessage& Parent, std::string Message );
 
 	private:
-		void SendRaw( const std::string& Line );
+		void                  SendRaw( std::string& Line );
+		asio::awaitable<void> SendRawAsync( std::string& Line );
 
 		TokenManager&                               Tokens;
 		std::string                                 Nick;
 		std::unordered_set<std::string>             Channels;
-		asio::io_context                            IOC;
 		ssl::context                                SSLC;
 		websocket::stream<ssl::stream<tcp::socket>> WebSocket;
 	};

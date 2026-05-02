@@ -3,5 +3,5 @@
 
 namespace Components::Operation
 {
-	void Elo( const Command* Data );
+	asio::awaitable<void> Elo( const Command* Data );
 }

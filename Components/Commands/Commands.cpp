@@ -5,6 +5,7 @@
 #include "Today/Today.h"
 #include "Components/TUI/TUI.h"
 #include "Elo/Elo.h"
+#include "Globals/Globals.h"
 #include "KDA/KDA.h"
 #include "OPGG/OPGG.h"
 
@@ -47,55 +48,46 @@ namespace Components
 		}
 	}
 
-	void Dispatch( const TwitchMessage& Message )
+	asio::awaitable<void> Dispatch( const TwitchMessage& Message )
 	{
 		const size_t Hash = Message.Channel.find( '#' );
 
 		if ( Hash == std::string::npos || Hash + 1 >= Message.Channel.size() )
 		{
 			PrintError( "Malformed Channel name! '{}' does not contain a hash", Message.Channel );
-			return;
+			co_return;
 		}
 
-		const std::string_view ChannelID = std::string_view( Message.Channel ).substr( Hash + 1 );
+		Command SentCommand{ .Context = Message };
 
-		auto [ Operation, Argument1, Argument2 ] = ParseCommand( Message.Text );
+		auto [ Operation, Argument1, Argument2 ] = ParseCommand( SentCommand.Context.Text );
 
-		const Command SentCommand = { .ChannelID = ChannelID, .Operation = Operation, .Argument1 = Argument1, .Argument2 = Argument2, .Context = &Message };
+		SentCommand.ChannelName = std::string( SentCommand.Context.Channel ).substr( Hash + 1 );
+		SentCommand.Operation   = std::string( Operation );
+		SentCommand.Argument1   = std::string( Argument1 );
+		SentCommand.Argument2   = std::string( Argument2 );
 
-		if ( Operation == "!accounts" || Operation == "!account" )
+		PrintDebug( "Operation: '{}', Arg1: '{}', Arg2: '{}'", SentCommand.Operation, SentCommand.Argument1, SentCommand.Argument2 );
+
+		static const std::unordered_map<std::string_view, asio::awaitable<void>(*)( const Command* )> Handlers =
 		{
-			Operation::Accounts( &SentCommand );
-			return;
-		}
+			{ "!accounts", Operation::Accounts },
+			{ "!account", Operation::Accounts },
+			{ "!today", Operation::Today },
+			{ "!score", Operation::Today },
+			{ "!opgg", Operation::OPGG },
+			{ "!active", Operation::Active },
+			{ "!current", Operation::Active },
+			{ "!elo", Operation::Elo },
+			{ "!kda", Operation::KDA },
+		};
 
-		if ( Operation == "!today" || Operation == "!score" )
-		{
-			Operation::Today( &SentCommand );
-			return;
-		}
+		const auto Iterator = Handlers.find( SentCommand.Operation );
+		if ( Iterator == Handlers.end() ) co_return;
 
-		if ( Operation == "!opgg" )
+		asio::co_spawn( Globals::IOC, [Command = std::move( SentCommand ), Method = Iterator->second]() mutable -> asio::awaitable<void>
 		{
-			Operation::OPGG( &SentCommand );
-			return;
-		}
-
-		if ( Operation == "!active" || Operation == "!current" )
-		{
-			Operation::Active( &SentCommand );
-			return;
-		}
-
-		if ( Operation == "!elo" )
-		{
-			Operation::Elo( &SentCommand );
-			return;
-		}
-
-		if ( Operation == "!kda" )
-		{
-			Operation::KDA( &SentCommand );
-		}
+			co_await Method( &Command );
+		}, asio::detached );
 	}
 }

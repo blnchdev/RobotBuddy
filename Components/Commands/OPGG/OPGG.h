@@ -3,5 +3,5 @@
 
 namespace Components::Operation
 {
-	void OPGG( const Command* Data );
+	asio::awaitable<void> OPGG( const Command* Data );
 }

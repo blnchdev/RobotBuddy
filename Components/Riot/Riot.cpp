@@ -70,7 +70,7 @@ namespace Components
 			return Value;
 		}
 
-		std::string GetLastGameID( const RiotAccount& Account )
+		asio::awaitable<std::string> GetLastGameID( const RiotAccount& Account )
 		{
 			url U;
 			U.set_path( "/lol/match/v5/matches/by-puuid" );
@@ -81,15 +81,15 @@ namespace Components
 			U.params().append( { "count", "1" } );
 
 			const auto Target           = U.encoded_target();
-			auto       [ Status, Body ] = Globals::LeagueAPI->GET( RegionalHost( Account.Region ), Target );
+			auto       [ Status, Body ] = co_await Globals::LeagueAPI->GET( RegionalHost( Account.Region ), Target );
 
-			if ( Status != 200 ) return {};
+			if ( Status != 200 ) co_return std::string();
 
 			const auto J = json::parse( Body );
-			return J.begin().value().get<std::string>();
+			co_return J.begin().value().get<std::string>();
 		}
 
-		std::vector<std::string> GetLastGameIDs( const RiotAccount& Account, const size_t Count )
+		asio::awaitable<std::vector<std::string>> GetLastGameIDs( const RiotAccount& Account, const size_t Count )
 		{
 			url U;
 			U.set_path( "/lol/match/v5/matches/by-puuid" );
@@ -100,24 +100,24 @@ namespace Components
 			U.params().append( { "count", std::to_string( Count ) } );
 
 			const auto Target           = U.encoded_target();
-			auto       [ Status, Body ] = Globals::LeagueAPI->GET( RegionalHost( Account.Region ), Target );
+			auto       [ Status, Body ] = co_await Globals::LeagueAPI->GET( RegionalHost( Account.Region ), Target );
 
-			if ( Status != 200 ) return {};
+			if ( Status != 200 ) co_return std::vector<std::string>();
 
 			const auto J = json::parse( Body );
-			return J.get<std::vector<std::string>>();
+			co_return J.get<std::vector<std::string>>();
 		}
 
-		std::optional<GameSummary> GetGameSummary( const std::string_view PUUID, const std::string_view Region, const std::string_view GameID )
+		asio::awaitable<std::optional<GameSummary>> GetGameSummary( const std::string_view PUUID, const std::string_view Region, const std::string_view GameID )
 		{
 			url U;
 			U.set_path( "/lol/match/v5/matches" );
 			U.segments().push_back( GameID );
 
 			const auto Target           = U.encoded_path();
-			auto       [ Status, Body ] = Globals::LeagueAPI->GET( RegionalHost( Region ), Target );
+			auto       [ Status, Body ] = co_await Globals::LeagueAPI->GET( RegionalHost( Region ), Target );
 
-			if ( Status != 200 ) return std::nullopt;
+			if ( Status != 200 ) co_return std::nullopt;
 
 			auto J    = json::parse( Body );
 			auto Info = J[ "info" ];
@@ -131,7 +131,7 @@ namespace Components
 
 			const auto Iterator = std::ranges::find_if( Participants, TryMatch );
 
-			if ( Iterator == Participants.end() ) return std::nullopt;
+			if ( Iterator == Participants.end() ) co_return std::nullopt;
 
 			auto& PlayerData = *Iterator;
 
@@ -145,7 +145,7 @@ namespace Components
 
 			const float Ratio = D == 0 ? -1.f : ( static_cast<float>( K ) + A ) / D;
 
-			return GameSummary
+			co_return GameSummary
 			{
 				.GameID = ExtractGameID( GameID ),
 				.Champion = PlayerData[ "championName" ],
@@ -165,13 +165,13 @@ namespace Components
 			};
 		}
 
-		std::optional<GameSummary> GetLastGame( RiotAccount& Account )
+		asio::awaitable<std::optional<GameSummary>> GetLastGame( RiotAccount& Account )
 		{
-			const std::string StringID = GetLastGameID( Account );
-			if ( StringID.empty() ) return std::nullopt;
+			const std::string StringID = co_await GetLastGameID( Account );
+			if ( StringID.empty() ) co_return std::nullopt;
 
 			const uint64_t GameID = ExtractGameID( StringID );
-			if ( GameID == 0 ) return std::nullopt;
+			if ( GameID == 0 ) co_return std::nullopt;
 
 			auto TryMatch = [&] ( const GameSummary& Summary )
 			{
@@ -182,28 +182,28 @@ namespace Components
 
 			if ( Iterator == Account.Summaries.end() )
 			{
-				const auto Summary = GetGameSummary( Account.PUUID, Account.Region, StringID );
-				if ( !Summary ) return std::nullopt;
+				const auto Summary = co_await GetGameSummary( Account.PUUID, Account.Region, StringID );
+				if ( !Summary ) co_return std::nullopt;
 
-				return Account.Summaries.emplace_back( *Summary );
+				co_return Account.Summaries.emplace_back( *Summary );
 			}
 
-			return *Iterator;
+			co_return *Iterator;
 		}
 
-		void RefreshSession( std::string_view ChannelID, RiotAccount& Account )
+		asio::awaitable<void> RefreshSession( std::string_view ChannelID, RiotAccount& Account )
 		{
 			if ( Account.Summaries.empty() )
 			{
 				// First pass, we grab the last 20 GameIDs
-				const auto Strings       = GetLastGameIDs( Account, 20 );
+				const auto Strings       = co_await GetLastGameIDs( Account, 20 );
 				uint64_t   LastGameStart = 0;
 
 				std::vector<GameSummary> TemporaryList = {};
 
 				for ( const auto& StringID : Strings )
 				{
-					const auto Summary = GetGameSummary( Account.PUUID, Account.Region, StringID );
+					const auto Summary = co_await GetGameSummary( Account.PUUID, Account.Region, StringID );
 
 					if ( Summary.has_value() )
 					{
@@ -212,6 +212,7 @@ namespace Components
 						if ( LastGameStart != 0 )
 						{
 							const auto Delta = LastGameStart - Summary->GameEnd;
+							PrintDebug( "Delta: {}", Delta );
 
 							if ( Delta >= 2ULL * 60ULL * 60ULL * 1000ULL ) break;
 						}
@@ -226,19 +227,17 @@ namespace Components
 			}
 			else
 			{
-				const auto StringID = GetLastGameID( Account );
+				const auto StringID = co_await GetLastGameID( Account );
 				const auto LastID   = ExtractGameID( StringID );
 
-				if ( LastID == Account.Summaries.back().GameID ) return; // Last Fetched == Last Saved; no new game.
+				if ( LastID == Account.Summaries.back().GameID ) co_return; // Last Fetched == Last Saved; no new game.
 
-				PrintDebug( "Found new game! '{}' (LastID was {})", StringID, LastID );
-
-				const auto NewSummary = GetGameSummary( Account.PUUID, Account.Region, StringID );
+				const auto NewSummary = co_await GetGameSummary( Account.PUUID, Account.Region, StringID );
 
 				if ( NewSummary.has_value() )
 				{
 					GameSummary Summary     = NewSummary.value();
-					const auto  CurrentRank = Globals::LeagueAPI->GetLeagueRank( Account );
+					const auto  CurrentRank = co_await Globals::LeagueAPI->GetLeagueRank( Account );
 
 					if ( Account.LastKnownRank.has_value() && CurrentRank.has_value() )
 					{
@@ -251,16 +250,7 @@ namespace Components
 							Summary.DeltaLP = Delta;
 						}
 
-						PrintDebug( "Delta {} (OldRank: {} {} {} LP / NewRank: {} {} {} LP)", Delta,
-						            Account.LastKnownRank->Rank, Account.LastKnownRank->Division, Account.LastKnownRank->LP,
-						            CurrentRank->Rank, CurrentRank->Division, CurrentRank->LP
-						          );
-
 						Account.LastKnownRank = CurrentRank;
-					}
-					else
-					{
-						PrintWarn( "{}#{} LastKnownRank? {} / CurrentRank?", Account.SummonerName, Account.TagLine, Account.LastKnownRank.has_value(), CurrentRank.has_value() );
 					}
 
 					Event::OnEndGame::Trigger( ChannelID, Summary );
@@ -278,69 +268,73 @@ namespace Components
 			String[ 0 ] = std::toupper( String[ 0 ] );
 		}
 
-		void Work()
+		asio::awaitable<void> Work()
 		{
-			auto GetLastGameTimestamp = [&] ( RiotAccount& Account )
-			{
-				const auto LastGame = GetLastGame( Account );
+			PrintOk( "Work()" );
 
-				return LastGame.has_value() ? LastGame->GameEnd : 0;
+			auto GetLastGameTimestamp = [&] ( RiotAccount& Account ) -> asio::awaitable<int64_t>
+			{
+				const auto LastGame = co_await GetLastGame( Account );
+				co_return LastGame.has_value() ? LastGame->GameEnd : 0;
 			};
 
-			auto PopulateLastSession = [&] ( const Database::Streamer& Streamer )
+			auto PopulateLastSession = [&] ( const Database::Streamer& Streamer ) -> asio::awaitable<void>
 			{
 				auto& RiotData = Globals::LeagueAPI->GetData( Streamer.StreamerID );
+				if ( RiotData.Accounts.empty() ) co_return;
 
-				if ( RiotData.Accounts.empty() ) return;
-
-				const auto ActiveGame = Globals::LeagueAPI->GetCurrentGame( Streamer.StreamerID );
+				const auto ActiveGame = co_await Globals::LeagueAPI->GetCurrentGame( Streamer.StreamerID );
 
 				if ( ActiveGame.has_value() )
 				{
-					if ( RiotData.ActivePUUID != ActiveGame->PUUID )
-					{
-						RiotData.ActivePUUID = ActiveGame->PUUID;
-					}
+					if ( RiotData.ActivePUUID != ActiveGame->PUUID ) RiotData.ActivePUUID = ActiveGame->PUUID;
 				}
 				else
 				{
-					const auto LatestActive = std::ranges::max_element( RiotData.Accounts, {}, GetLastGameTimestamp );
+					const RiotAccount* LatestActive    = nullptr;
+					int64_t            LatestTimestamp = 0;
 
-					if ( LatestActive == RiotData.Accounts.end() ) return;
+					for ( auto& Account : RiotData.Accounts )
+					{
+						const auto Timestamp = co_await GetLastGameTimestamp( Account );
+						if ( Timestamp > LatestTimestamp )
+						{
+							LatestTimestamp = Timestamp;
+							LatestActive    = &Account;
+						}
+					}
 
+					if ( !LatestActive ) co_return;
 					RiotData.ActivePUUID = LatestActive->PUUID;
 				}
 
-				const auto Iterator = std::ranges::find_if( RiotData.Accounts, [&] ( const RiotAccount& Account ) { return Account.PUUID == RiotData.ActivePUUID; } );
-
-				if ( Iterator != RiotData.Accounts.end() )
+				const auto Iterator = std::ranges::find_if( RiotData.Accounts, [&] ( const RiotAccount& Account )
 				{
-					RefreshSession( Streamer.StreamerID, *Iterator );
-				}
+					return Account.PUUID == RiotData.ActivePUUID;
+				} );
+
+				if ( Iterator != RiotData.Accounts.end() ) co_await RefreshSession( Streamer.StreamerID, *Iterator );
 			};
 
 			// First pass
 			{
 				const auto Streamers = Globals::DB->GetStreamers();
-				std::ranges::for_each( Streamers, PopulateLastSession );
+				for ( const auto& Streamer : Streamers ) co_await PopulateLastSession( Streamer );
 			}
+
+			asio::steady_timer Timer{ co_await asio::this_coro::executor };
 
 			while ( true )
 			{
 				const auto Streamers = Globals::DB->GetStreamers();
-
-				auto Refresh = [&] ( const Database::Streamer& Streamer )
+				for ( const auto& Streamer : Streamers )
 				{
 					const auto ActiveAccount = Globals::LeagueAPI->GetActiveAccount( Streamer.StreamerID );
+					if ( ActiveAccount ) co_await RefreshSession( Streamer.StreamerID, *ActiveAccount );
+				}
 
-					if ( ActiveAccount )
-					{
-						RefreshSession( Streamer.StreamerID, *ActiveAccount );
-					}
-				};
-
-				std::ranges::for_each( Streamers, Refresh );
-				std::this_thread::sleep_for( std::chrono::seconds( 15 ) );
+				Timer.expires_after( std::chrono::seconds( 15 ) );
+				co_await Timer.async_wait( asio::use_awaitable );
 			}
 		}
 	}
@@ -350,7 +344,7 @@ namespace Components
 		const auto TierIterator = TierBase.find( Entry.Rank );
 		if ( TierIterator == TierBase.end() ) return 0;
 
-		const bool IsApexRank = Entry.Rank == "MASTER" || Entry.Rank == "GRANDMASTER" || Entry.Rank == "CHALLENGER";
+		const bool IsApexRank = Entry.Rank == "Master" || Entry.Rank == "Grandmaster" || Entry.Rank == "Challenger";
 		if ( IsApexRank ) return TierIterator->second + Entry.LP;
 
 		const auto DivisionIterator = DivisionBase.find( Entry.Division );
@@ -404,43 +398,46 @@ namespace Components
 		return { .Rank = TierName, .Division = DivisionName, .LP = Remainder, .IsApex = false };
 	}
 
-	RiotAccount::RiotAccount( std::string PUUID ) : PUUID( std::move( PUUID ) )
+	asio::awaitable<std::optional<RiotAccount>> RiotAccount::Create( std::string PUUID )
 	{
 		if ( !Globals::LeagueAPI ) throw std::runtime_error( "No RiotAPI instance, can not create RiotAccounts!" );
+
+		RiotAccount Account;
+		Account.PUUID = std::move( PUUID );
 
 		url U;
 
 		{
 			U.set_path( "/riot/account/v1/accounts/by-puuid" );
-			U.segments().push_back( this->PUUID );
+			U.segments().push_back( Account.PUUID );
 
-			const auto Target           = U.encoded_path();
-			auto       [ Status, Body ] = Globals::LeagueAPI->GET( Target );
-			if ( Status != 200 ) return;
+			auto [ Status, Body ] = co_await Globals::LeagueAPI->GET( U.encoded_path() );
+			if ( Status != 200 ) co_return std::nullopt;
 
 			const auto J = json::parse( Body, nullptr, false );
-			if ( J.is_discarded() ) return;
+			if ( J.is_discarded() ) co_return std::nullopt;
 
-			J[ "gameName" ].get_to( this->SummonerName );
-			J[ "tagLine" ].get_to( this->TagLine );
+			J[ "gameName" ].get_to( Account.SummonerName );
+			J[ "tagLine" ].get_to( Account.TagLine );
 		}
 
 		{
 			U.set_path( "/riot/account/v1/region/by-game/lol/by-puuid" );
-			U.segments().push_back( this->PUUID );
+			U.segments().push_back( Account.PUUID );
 
-			const auto Target           = U.encoded_path();
-			auto       [ Status, Body ] = Globals::LeagueAPI->GET( Target );
-			if ( Status != 200 ) return;
+			auto [ Status, Body ] = co_await Globals::LeagueAPI->GET( U.encoded_path() );
+			if ( Status != 200 ) co_return std::nullopt;
 
 			const auto J = json::parse( Body, nullptr, false );
-			if ( J.is_discarded() ) return;
+			if ( J.is_discarded() ) co_return std::nullopt;
 
-			J[ "region" ].get_to( this->Region );
+			J[ "region" ].get_to( Account.Region );
 		}
 
-		this->LastKnownRank = Globals::LeagueAPI->GetLeagueRank( *this );
-		this->Valid         = true;
+		Account.LastKnownRank = co_await Globals::LeagueAPI->GetLeagueRank( Account );
+		Account.Valid         = true;
+
+		co_return Account;
 	}
 
 	RiotData::RiotData( std::string Channel ) : TwitchChannel( std::move( Channel ) )
@@ -461,7 +458,7 @@ namespace Components
 			U.set_path( "/api/versions.json" );
 
 			const auto Target           = U.encoded_path();
-			auto       [ Status, Body ] = this->GET( "ddragon.leagueoflegends.com", Target, false );
+			auto       [ Status, Body ] = this->GETSync( "ddragon.leagueoflegends.com", Target, false );
 
 			if ( Status != 200 )
 			{
@@ -481,7 +478,7 @@ namespace Components
 			U.segments().push_back( "data/en_US/champion.json" );
 
 			const auto Target           = U.encoded_path();
-			auto       [ Status, Body ] = this->GET( "ddragon.leagueoflegends.com", Target, false );
+			auto       [ Status, Body ] = this->GETSync( "ddragon.leagueoflegends.com", Target, false );
 
 			auto  J         = json::parse( Body );
 			auto& Champions = J[ "data" ];
@@ -502,20 +499,60 @@ namespace Components
 
 	void Riot::Connect( const std::vector<Database::Streamer>& Streamers )
 	{
-		auto Populate = [&] ( const Database::Streamer& Streamer )
+		for ( const auto& Streamer : Streamers ) this->Data[ Streamer.StreamerID ] = RiotData{ Streamer.StreamerID };
+
+		std::atomic<size_t> Pending = 0;
+		std::promise<void>  Ready;
+
+		for ( const auto& Streamer : Streamers )
 		{
-			RiotData Buffer{ Streamer.StreamerID };
+			for ( const auto& PUUID : Streamer.PUUIDs )
+			{
+				++Pending;
+				asio::co_spawn( Globals::IOC, [&, PUUID = std::string( PUUID ), StreamerID = Streamer.StreamerID]() -> asio::awaitable<void>
+				{
+					const auto Account = co_await RiotAccount::Create( PUUID );
+					if ( Account ) this->Data[ StreamerID ].Accounts.push_back( *Account );
 
-			std::ranges::for_each( Streamer.PUUIDs, [&] ( const std::string_view PUUID ) { Buffer.Accounts.emplace_back( std::string( PUUID ) ); } );
-			this->Data[ Buffer.TwitchChannel ] = std::move( Buffer );
-		};
+					if ( --Pending == 0 ) Ready.set_value();
+				}, asio::detached );
+			}
+		}
 
-		std::ranges::for_each( Streamers, Populate );
+		if ( Pending > 0 ) Ready.get_future().wait();
 
-		this->WorkerThread = std::jthread( Work );
+		asio::co_spawn( Globals::IOC, Work(), asio::detached );
 	}
 
-	Riot::Response Riot::GET( std::string_view Host, std::string_view Target, bool NeedsAPI )
+	asio::awaitable<Riot::Response> Riot::GET( std::string_view Host, std::string_view Target, bool NeedsAPI )
+	{
+		auto                           Executor = co_await asio::this_coro::executor;
+		ssl::stream<beast::tcp_stream> Stream{ Executor, SSLC };
+
+		if ( !SSL_set_tlsext_host_name( Stream.native_handle(), std::string{ Host }.c_str() ) ) throw std::runtime_error( "SNI failed" );
+
+		tcp::resolver Resolver{ Executor };
+
+		auto const [ EC, Results ] = co_await Resolver.async_resolve( Host, "443", asio::as_tuple( asio::use_awaitable ) );
+		if ( EC.failed() ) co_return Riot::Response{};
+		co_await beast::get_lowest_layer( Stream ).async_connect( Results, asio::use_awaitable );
+		co_await Stream.async_handshake( ssl::stream_base::client, asio::use_awaitable );
+
+		http::request<http::empty_body> Request{ http::verb::get, Target, 11 };
+		Request.set( http::field::host, Host );
+		Request.set( http::field::user_agent, "lol-sessions/1.0" );
+		if ( NeedsAPI ) Request.set( "X-Riot-Token", API );
+
+		co_await http::async_write( Stream, Request, asio::use_awaitable );
+
+		beast::flat_buffer                Buffer;
+		http::response<http::string_body> Result;
+		co_await http::async_read( Stream, Buffer, Result, asio::use_awaitable );
+
+		co_return Response{ .Status = Result.result_int(), .Body = std::move( Result.body() ) };
+	}
+
+	Riot::Response Riot::GETSync( std::string_view Host, std::string_view Target, bool NeedsAPI )
 	{
 		ssl::stream<beast::tcp_stream> Stream{ IOC, SSLC };
 
@@ -540,9 +577,9 @@ namespace Components
 		return { .Status = ( Result.result_int() ), .Body = std::move( Result.body() ) };
 	}
 
-	Riot::Response Riot::GET( const std::string_view Target )
+	asio::awaitable<Riot::Response> Riot::GET( std::string_view Target )
 	{
-		return this->GET( REGIONAL_HOST, Target );
+		co_return co_await GET( REGIONAL_HOST, Target );
 	}
 
 	RiotAccount* Riot::GetActiveAccount( const std::string_view StreamerID )
@@ -555,89 +592,112 @@ namespace Components
 		return &*Iterator;
 	}
 
-	std::optional<ActiveGame> Riot::GetCurrentGame( std::string_view StreamerID )
+	asio::awaitable<std::optional<ActiveGame>> Riot::GetCurrentGame( std::string_view StreamerID )
 	{
 		auto& StreamerData = this->Data[ std::string( StreamerID ) ];
 
-		const auto* ActiveAccount = [&]() -> const RiotAccount*
+		const RiotAccount* ActiveAccount = nullptr;
+		for ( const auto& Account : StreamerData.Accounts )
 		{
-			for ( const auto& Account : StreamerData.Accounts )
+			url U;
+			U.set_path( "/lol/spectator/v5/active-games/by-summoner" );
+			U.segments().push_back( Account.PUUID );
+
+			auto [ Status, Body ] = co_await GET( ServerHost( Account.Region ), U.encoded_path() );
+
+			if ( Status == 200 )
 			{
-				url U;
-				U.set_path( "/lol/spectator/v5/active-games/by-summoner" );
-				U.segments().push_back( Account.PUUID );
-
-				auto Target        = U.encoded_path();
-				auto [ Status, _ ] = Globals::LeagueAPI->GET( ServerHost( Account.Region ), Target );
-				if ( Status == 200 ) return &Account;
+				ActiveAccount = &Account;
+				break;
 			}
+		}
 
-			return nullptr;
-		}();
-
-		if ( !ActiveAccount ) return std::nullopt;
+		if ( !ActiveAccount ) co_return std::nullopt;
 
 		url U;
 		U.set_path( "/lol/spectator/v5/active-games/by-summoner" );
 		U.segments().push_back( ActiveAccount->PUUID );
 
-		auto       [ _, Body ] = Globals::LeagueAPI->GET( ServerHost( ActiveAccount->Region ), U.encoded_path() );
-		const auto J           = json::parse( Body );
+		auto [ Status, Body ] = co_await GET( ServerHost( ActiveAccount->Region ), U.encoded_path() );
 
-		int32_t                ChampionID = 0;
-		std::vector<RankEntry> Ranks;
+		if ( Status != 200 ) co_return std::nullopt;
 
+		const auto J = json::parse( Body );
+
+		int32_t ChampionID = 0;
+
+		std::vector<std::string> PUUIDs;
 		for ( const auto& Participant : J[ "participants" ] )
 		{
 			if ( !Participant.contains( "puuid" ) || Participant[ "puuid" ].is_null() ) continue;
 
 			const auto PUUID = Participant[ "puuid" ].get<std::string>();
-
 			if ( PUUID == ActiveAccount->PUUID ) ChampionID = Participant[ "championId" ];
 
+			PUUIDs.push_back( PUUID );
+		}
+
+		auto CoFetch = [&] ( const std::string& PUUID )-> asio::awaitable<std::optional<RankEntry>>
+		{
 			url RankURL;
 			RankURL.set_path( "/lol/league/v4/entries/by-puuid" );
 			RankURL.segments().push_back( PUUID );
 
-			auto [ Status, RankBody ] = Globals::LeagueAPI->GET( ServerHost( ActiveAccount->Region ), RankURL.encoded_path() );
+			auto [ _Status, _RankBody ] = co_await GET( ServerHost( ActiveAccount->Region ), RankURL.encoded_path() );
+			if ( _Status != 200 ) co_return std::nullopt;
 
-			if ( Status != 200 )
-			{
-				continue;
-			}
-
-			const auto Entries = json::parse( RankBody );
+			const auto Entries = json::parse( _RankBody );
 			const auto SoloQ   = std::ranges::find_if( Entries, [] ( const json& E )
 			{
 				return E[ "queueType" ].get<std::string>() == "RANKED_SOLO_5x5";
 			} );
 
-			if ( SoloQ != Entries.end() )
-			{
-				Ranks.emplace_back( ( *SoloQ )[ "tier" ], ( *SoloQ )[ "rank" ], ( *SoloQ )[ "leaguePoints" ] );
-			}
+			if ( SoloQ == Entries.end() ) co_return std::nullopt;
+
+			std::string Rank = ( *SoloQ )[ "tier" ];
+			Capitalize( Rank );
+
+			co_return RankEntry{ .Rank = Rank, .Division = ( *SoloQ )[ "rank" ], .LP = ( *SoloQ )[ "leaguePoints" ] };
+		};
+
+		std::vector<asio::awaitable<std::optional<RankEntry>>> Tasks;
+		Tasks.reserve( PUUIDs.size() );
+		for ( const auto& PUUID : PUUIDs )
+		{
+			Tasks.push_back( CoFetch( PUUID ) );
+		}
+
+		std::vector<RankEntry> Ranks;
+		for ( auto& Task : Tasks )
+		{
+			auto Result = co_await std::move( Task );
+			if ( Result.has_value() ) Ranks.push_back( Result.value() );
+		}
+
+		for ( const auto& Rank : Ranks )
+		{
+			PrintDebug( "Rank: {} {} {}LP", Rank.Rank, Rank.Division, Rank.LP );
 		}
 
 		auto [ Rank, Division, LP, IsApex ] = LPToRank( GetAverageLP( Ranks ) );
-
 		Capitalize( Rank );
 
 		const auto AverageEloFormatted = IsApex ? std::format( "average LP is {} LP", LP ) : std::format( "average rank is {} {} {} LP", Rank, Division, LP );
 
-		return ActiveGame{ .PUUID = ActiveAccount->PUUID, .Champion = ChampionMap[ ChampionID ], .AverageElo = AverageEloFormatted };
+		co_return ActiveGame{ .PUUID = ActiveAccount->PUUID, .Champion = ChampionMap[ ChampionID ], .AverageElo = AverageEloFormatted };
 	}
 
-	std::optional<RankEntry> Riot::GetLeagueRank( const RiotAccount& Account )
+	asio::awaitable<std::optional<RankEntry>> Riot::GetLeagueRank( const RiotAccount& Account )
 	{
 		url RankURL;
 		RankURL.set_path( "/lol/league/v4/entries/by-puuid" );
 		RankURL.segments().push_back( Account.PUUID );
 
-		auto [ Status, RankBody ] = this->GET( ServerHost( Account.Region ), RankURL.encoded_path() );
+		auto [ Status, RankBody ] = co_await this->GET( ServerHost( Account.Region ), RankURL.encoded_path() );
 
 		if ( Status != 200 )
 		{
-			return std::nullopt;
+			co_return std::nullopt;
 		}
 
 		const auto Entries = json::parse( RankBody );
@@ -645,6 +705,8 @@ namespace Components
 		{
 			return E[ "queueType" ].get<std::string>() == "RANKED_SOLO_5x5";
 		} );
+
+		if ( SoloQ == Entries.end() ) co_return std::nullopt;
 
 		auto              Rank     = ( *SoloQ )[ "tier" ].get<std::string>();
 		const std::string Division = ( *SoloQ )[ "rank" ];
@@ -653,24 +715,24 @@ namespace Components
 
 		Capitalize( Rank );
 
-		return RankEntry{ .Rank = Rank, .Division = Division, .LP = LP, .IsApex = IsApex };
+		co_return RankEntry{ .Rank = Rank, .Division = Division, .LP = LP, .IsApex = IsApex };
 	}
 
-	std::optional<std::string> Riot::GetLeagueRankFormatted( std::string_view StreamerID )
+	asio::awaitable<std::optional<std::string>> Riot::GetLeagueRankFormatted( std::string_view StreamerID )
 	{
 		const auto ActiveAccount = this->GetActiveAccount( StreamerID );
 
-		if ( !ActiveAccount ) return std::nullopt;
+		if ( !ActiveAccount ) co_return std::nullopt;
 
 		url RankURL;
 		RankURL.set_path( "/lol/league/v4/entries/by-puuid" );
 		RankURL.segments().push_back( ActiveAccount->PUUID );
 
-		auto [ Status, RankBody ] = Globals::LeagueAPI->GET( ServerHost( ActiveAccount->Region ), RankURL.encoded_path() );
+		auto [ Status, RankBody ] = co_await Globals::LeagueAPI->GET( ServerHost( ActiveAccount->Region ), RankURL.encoded_path() );
 
 		if ( Status != 200 )
 		{
-			return std::nullopt;
+			co_return std::nullopt;
 		}
 
 		const auto Entries = json::parse( RankBody );
@@ -679,7 +741,9 @@ namespace Components
 			return E[ "queueType" ].get<std::string>() == "RANKED_SOLO_5x5";
 		} );
 
-		std::string       Rank     = ( *SoloQ )[ "tier" ].get<std::string>();
+		if ( SoloQ == Entries.end() ) co_return std::nullopt;
+
+		std::string       Rank     = ( *SoloQ )[ "tier" ];
 		const std::string Division = ( *SoloQ )[ "rank" ];
 		const int32_t     LP       = ( *SoloQ )[ "leaguePoints" ];
 		const bool        IsApex   = Rank == "MASTER" || Rank == "GRANDMASTER" || Rank == "CHALLENGER";
@@ -688,13 +752,13 @@ namespace Components
 
 		if ( IsApex )
 		{
-			return std::format( "{} is currently {} {} LP", StreamerID, Rank, LP );
+			co_return std::format( "{} is currently {} {} LP", StreamerID, Rank, LP );
 		}
 
-		return std::format( "{} is currently {} {} {} LP", StreamerID, Rank, Division, LP );
+		co_return std::format( "{} is currently {} {} {} LP", StreamerID, Rank, Division, LP );
 	}
 
-	std::optional<std::string> Riot::GetPUUID( const std::string_view SummonerName, const std::string_view TagLine )
+	asio::awaitable<std::optional<std::string>> Riot::GetPUUID( const std::string_view SummonerName, const std::string_view TagLine )
 	{
 		url U;
 		U.set_path( "/riot/account/v1/accounts/by-riot-id" );
@@ -702,12 +766,12 @@ namespace Components
 		U.segments().push_back( TagLine );
 
 		const auto Target           = U.encoded_path();
-		auto       [ Status, Body ] = this->GET( Target );
+		auto       [ Status, Body ] = co_await this->GET( Target );
 
-		if ( Status != 200 ) return std::nullopt;
+		if ( Status != 200 ) co_return std::nullopt;
 
 		const auto J = json::parse( Body );
-		return J[ "puuid" ].get<std::string>();
+		co_return J[ "puuid" ].get<std::string>();
 	}
 
 	RiotData& Riot::GetData( const std::string_view StreamerID )
@@ -715,22 +779,24 @@ namespace Components
 		return this->Data[ std::string( StreamerID ) ];
 	}
 
-	bool Riot::AddAccount( const std::string_view StreamerID, const std::string_view PUUID )
+	asio::awaitable<bool> Riot::AddAccount( const std::string_view StreamerID, const std::string_view PUUID )
 	{
-		auto&       Streamer = this->Data[ std::string( StreamerID ) ];
-		const auto& Account  = Streamer.Accounts.emplace_back( std::string( PUUID ) );
+		auto& Streamer = this->Data[ std::string( StreamerID ) ];
+		auto  Account  = co_await RiotAccount::Create( std::string( PUUID ) );
 
-		if ( !Account.Valid ) return false; // PUUID did not result into a valid RiotAccount
+		if ( !Account.has_value() || !Account->Valid ) co_return false;
+
+		Streamer.Accounts.push_back( Account.value() );
 
 		( void )Globals::DB->AddAccount( StreamerID, PUUID );
-		return true;
+		co_return true;
 	}
 
-	bool Riot::RemoveAccount( const std::string_view StreamerID, const std::string_view SummonerName, const std::string_view TagLine )
+	asio::awaitable<bool> Riot::RemoveAccount( const std::string_view StreamerID, const std::string_view SummonerName, const std::string_view TagLine )
 	{
 		const auto Iterator = this->Data.find( std::string( StreamerID ) );
 
-		if ( Iterator == this->Data.end() ) return false;
+		if ( Iterator == this->Data.end() ) co_return false;
 
 		const auto TryMatch = [&] ( const RiotAccount& Account )
 		{
@@ -739,12 +805,12 @@ namespace Components
 
 		const auto Result = std::ranges::remove_if( Iterator->second.Accounts, TryMatch );
 
-		if ( Result.begin() == Result.end() ) return false; // No match
+		if ( Result.begin() == Result.end() ) co_return false; // No match
 
 		Iterator->second.Accounts.erase( Result.begin(), Result.end() );
 
 		{
-			const auto PUUID = Globals::LeagueAPI->GetPUUID( SummonerName, TagLine );
+			const auto PUUID = co_await Globals::LeagueAPI->GetPUUID( SummonerName, TagLine );
 
 			if ( PUUID.has_value() )
 			{
@@ -752,6 +818,6 @@ namespace Components
 			}
 		}
 
-		return true;
+		co_return true;
 	}
 }

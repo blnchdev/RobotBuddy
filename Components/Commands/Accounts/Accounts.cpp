@@ -50,13 +50,13 @@ namespace Components::Operation
 			return Length;
 		}
 
-		std::string Add( const Command* Data )
+		asio::awaitable<std::string> Add( const Command* Data )
 		{
 			std::string Response;
 
 			if ( Data->Argument2.empty() )
 			{
-				return "Missing username. Proper usage: !accounts add <username#tagline>. e.g.: !accounts add Azzapp#31415";
+				co_return "Missing username. Proper usage: !accounts add <username#tagline>. e.g.: !accounts add Azzapp#31415";
 			}
 
 			const auto [ SummonerName, TagLine ] = ParseAccount( Data->Argument2 );
@@ -64,34 +64,34 @@ namespace Components::Operation
 			if ( SummonerName.empty() || TagLine.empty() || LengthUTF8( SummonerName ) > 16 || LengthUTF8( TagLine ) > 5 )
 			{
 				PrintDebug( "'{}' size({}) / '{}' size({})", SummonerName, LengthUTF8( SummonerName ), TagLine, LengthUTF8( TagLine ) );
-				return "Malformed Summoner Name, proper usage is: !accounts add <username#tagline>. e.g.: !accounts add Azzapp#31415";
+				co_return "Malformed Summoner Name, proper usage is: !accounts add <username#tagline>. e.g.: !accounts add Azzapp#31415";
 			}
 
-			const auto PUUID = Globals::LeagueAPI->GetPUUID( SummonerName, TagLine );
+			const auto PUUID = co_await Globals::LeagueAPI->GetPUUID( SummonerName, TagLine );
 
 			if ( !PUUID.has_value() )
 			{
-				return "Could not find that summoner.";
+				co_return "Could not find that summoner.";
 			}
 
-			const bool Status = Globals::LeagueAPI->AddAccount( Data->ChannelID, PUUID.value() );
+			const bool Status = co_await Globals::LeagueAPI->AddAccount( Data->ChannelName, PUUID.value() );
 
 			if ( Status )
 			{
-				return "Added this account";
+				co_return "Added this account";
 			}
 
-			return "That account was already added!";
+			co_return "That account was already added!";
 		}
 
 		std::string List( const Command* Data )
 		{
-			const auto  RiotData = Globals::LeagueAPI->GetData( Data->ChannelID );
+			const auto  RiotData = Globals::LeagueAPI->GetData( Data->ChannelName );
 			std::string Response = "Accounts: ";
 
 			if ( RiotData.Accounts.empty() )
 			{
-				return std::format( "{} has no accounts registered", Data->ChannelID );
+				return std::format( "{} has no accounts registered", Data->ChannelName );
 			}
 
 			for ( const auto&& [ Index, Account ] : RiotData.Accounts | std::views::enumerate )
@@ -103,39 +103,39 @@ namespace Components::Operation
 			return Response;
 		}
 
-		std::string Remove( const Command* Data )
+		asio::awaitable<std::string> Remove( const Command* Data )
 		{
 			std::string Response;
 
 			if ( Data->Argument2.empty() )
 			{
-				return "Missing username. Proper usage: !accounts remove <username#tagline>. e.g.: !accounts remove Azzapp#31415";
+				co_return "Missing username. Proper usage: !accounts remove <username#tagline>. e.g.: !accounts remove Azzapp#31415";
 			}
 
 			const auto [ SummonerName, TagLine ] = ParseAccount( Data->Argument2 );
 
 			if ( SummonerName.empty() || TagLine.empty() || LengthUTF8( SummonerName ) > 16 || LengthUTF8( TagLine ) > 5 )
 			{
-				return "Malformed Summoner Name, proper usage is: !accounts remove <username#tagline>. e.g.: !accounts remove Azzapp#31415";
+				co_return "Malformed Summoner Name, proper usage is: !accounts remove <username#tagline>. e.g.: !accounts remove Azzapp#31415";
 			}
 
-			const bool Status = Globals::LeagueAPI->RemoveAccount( Data->ChannelID, SummonerName, TagLine );
+			const bool Status = co_await Globals::LeagueAPI->RemoveAccount( Data->ChannelName, SummonerName, TagLine );
 
 			if ( Status )
 			{
-				return "Removed this account";
+				co_return "Removed this account";
 			}
 
-			return "Could not find this account, is it present if you type '!accounts list'?";
+			co_return "Could not find this account, is it present if you type '!accounts list'?";
 		}
 	}
 
-	void Accounts( const Command* Data )
+	asio::awaitable<void> Accounts( const Command* Data )
 	{
-		if ( !Data->Context->IsOwner && !Data->Context->IsModerator )
+		if ( !Data->Context.IsOwner && !Data->Context.IsModerator )
 		{
-			Globals::TwitchAPI->ReplyTo( *Data->Context, "You do not have the permissions required to run this command" );
-			return;
+			Globals::TwitchAPI->ReplyTo( Data->Context, "You do not have the permissions required to run this command" );
+			co_return;
 		}
 
 		const auto SubCommand = Data->Argument1;
@@ -144,11 +144,11 @@ namespace Components::Operation
 
 		if ( SubCommand == "add" )
 		{
-			Response = Add( Data );
+			Response = co_await Add( Data );
 		}
 		else if ( SubCommand == "remove" )
 		{
-			Response = Remove( Data );
+			Response = co_await Remove( Data );
 		}
 		else if ( SubCommand == "list" )
 		{
@@ -157,7 +157,9 @@ namespace Components::Operation
 
 		if ( !Response.empty() )
 		{
-			Globals::TwitchAPI->ReplyTo( *Data->Context, Response );
+			Globals::TwitchAPI->ReplyTo( Data->Context, Response );
 		}
+
+		co_return;
 	}
 }

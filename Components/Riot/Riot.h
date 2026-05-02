@@ -32,6 +32,35 @@ namespace Components
 		float   Ratio;
 	};
 
+	enum GameType
+	{
+		UNRANKED = 0, // Both Swift Play & Draft
+		SOLOQ    = 1,
+		FLEX     = 2,
+		ARAM     = 3, // Both regular and mayhem
+		ARENA    = 4,
+		CLASH    = 5,
+		ROTATING = 6
+	};
+
+	struct _GameSummary
+	{
+		uint64_t GameID;
+		int32_t  ChampionID;
+		GameType Type;
+
+		bool Win;
+		KDA  KDA;
+
+		uint64_t Duration;
+		uint64_t GameEnd;
+
+		int32_t CreepScore;
+		double  VisionScore;
+
+		int32_t DeltaLP = 0;
+	};
+
 	struct GameSummary
 	{
 		uint64_t    GameID;
@@ -65,7 +94,9 @@ namespace Components
 		std::vector<GameSummary> Summaries     = {};
 		std::optional<RankEntry> LastKnownRank = std::nullopt;
 
-		explicit RiotAccount( std::string PUUID );
+		// TODO: Rework this, async the creation (std::future std::optional RiotAccount "Create" method, ctor should just be = default)
+		explicit                                           RiotAccount() = default;
+		static asio::awaitable<std::optional<RiotAccount>> Create( std::string PUUID );
 	};
 
 	struct RiotData
@@ -90,18 +121,19 @@ namespace Components
 			std::string Body;
 		};
 
-		void                       InitializeDataDragon();
-		void                       Connect( const std::vector<Database::Streamer>& Streamers );
-		Response                   GET( std::string_view Host, std::string_view Target, bool NeedsAPI = true );
-		Response                   GET( std::string_view Target );
-		RiotAccount*               GetActiveAccount( std::string_view StreamerID );
-		std::optional<ActiveGame>  GetCurrentGame( std::string_view StreamerID );
-		std::optional<RankEntry>   GetLeagueRank( const RiotAccount& Account );
-		std::optional<std::string> GetLeagueRankFormatted( std::string_view StreamerID );
-		std::optional<std::string> GetPUUID( std::string_view SummonerName, std::string_view TagLine );
-		RiotData&                  GetData( std::string_view StreamerID );
-		bool                       AddAccount( std::string_view StreamerID, std::string_view PUUID );
-		bool                       RemoveAccount( std::string_view StreamerID, std::string_view SummonerName, std::string_view TagLine );
+		void                                        InitializeDataDragon();
+		void                                        Connect( const std::vector<Database::Streamer>& Streamers );
+		asio::awaitable<Response>                   GET( std::string_view Host, std::string_view Target, bool NeedsAPI = true );
+		Response                                    GETSync( std::string_view Host, std::string_view Target, bool NeedsAPI = true );
+		asio::awaitable<Response>                   GET( std::string_view Target );
+		RiotAccount*                                GetActiveAccount( std::string_view StreamerID );
+		asio::awaitable<std::optional<ActiveGame>>  GetCurrentGame( std::string_view StreamerID );
+		asio::awaitable<std::optional<RankEntry>>   GetLeagueRank( const RiotAccount& Account );
+		asio::awaitable<std::optional<std::string>> GetLeagueRankFormatted( std::string_view StreamerID );
+		asio::awaitable<std::optional<std::string>> GetPUUID( std::string_view SummonerName, std::string_view TagLine );
+		RiotData&                                   GetData( std::string_view StreamerID );
+		asio::awaitable<bool>                       AddAccount( std::string_view StreamerID, std::string_view PUUID );
+		asio::awaitable<bool>                       RemoveAccount( std::string_view StreamerID, std::string_view SummonerName, std::string_view TagLine );
 
 	private:
 		std::unordered_map<std::string, RiotData> Data = {};

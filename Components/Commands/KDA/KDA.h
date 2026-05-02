@@ -3,5 +3,5 @@
 
 namespace Components::Operation
 {
-	void KDA( const Command* Data );
+	asio::awaitable<void> KDA( const Command* Data );
 }

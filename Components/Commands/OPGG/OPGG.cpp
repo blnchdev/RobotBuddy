@@ -42,10 +42,11 @@ namespace Components::Operation
 		}
 	}
 
-	void OPGG( const Command* Data )
+	asio::awaitable<void> OPGG( const Command* Data )
 	{
-		const std::string Response = GetResponse( Data->ChannelID );
+		const std::string Response = GetResponse( Data->ChannelName );
 
-		Globals::TwitchAPI->ReplyTo( *Data->Context, Response );
+		Globals::TwitchAPI->ReplyTo( Data->Context, Response );
+		co_return;
 	}
 }

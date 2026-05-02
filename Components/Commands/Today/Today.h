@@ -3,5 +3,5 @@
 
 namespace Components::Operation
 {
-	void Today( const Command* Data );
+	asio::awaitable<void> Today( const Command* Data );
 }

@@ -24,7 +24,6 @@ namespace Components
 		API();
 
 	private:
-		asio::io_context IOC{ 1 };
 		tcp::acceptor    Acceptor;
 		std::jthread     Worker;
 		std::stop_source StopSource = {};

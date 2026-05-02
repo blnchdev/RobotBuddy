@@ -19,9 +19,7 @@ namespace
 	{
 		if ( Message.Text.empty() || Message.Text[ 0 ] != '!' ) return;
 
-		PrintDebug( "Line: {}", Message.Text );
-
-		Components::Dispatch( Message );
+		co_spawn( Globals::IOC, Dispatch( Message ), boost::asio::detached );
 	}
 }
 
@@ -42,7 +40,6 @@ int main()
 	PrintDebug( "Loaded Database" );
 
 	const auto Streamers = Globals::DB->GetStreamers();
-	PrintInfo( "DB: {} streamer(s)", Streamers.size() );
 
 	TokenManager Tokens( Environment::Get( "TWITCH_CLIENT_ID" ), Environment::Get( "TWITCH_CLIENT_SECRET" ), Environment::Get( "TWITCH_ACCESS_TOKEN" ), Environment::Get( "TWITCH_REFRESH_TOKEN" ) );
 	PrintDebug( "Loaded Twitch TokenManager" );
@@ -53,13 +50,30 @@ int main()
 	Globals::TwitchAPI = std::make_unique<TwitchBot>( Tokens, Environment::Get( "TWITCH_BOT_NICK" ) );
 	Globals::TwitchAPI->Connect();
 	Globals::TwitchAPI->Login( ToJoin );
+	PrintDebug( "Loaded TwitchAPI" );
+
+	constexpr size_t         THREAD_COUNT = 4;
+	std::vector<std::thread> Pool         = {};
+	for ( auto i{ 0ULL }; i < THREAD_COUNT; ++i )
+	{
+		Pool.emplace_back( [] { Globals::IOC.run(); } );
+	}
 
 	Globals::LeagueAPI = std::make_unique<Riot>( Environment::Get( "RIOT_API_KEY" ) );
 	Globals::LeagueAPI->InitializeDataDragon();
 	Globals::LeagueAPI->Connect( Streamers );
 	PrintDebug( "Loaded LeagueAPI" );
 
-	Globals::TwitchAPI->Run( OnMessage );
+	asio::co_spawn( Globals::IOC, [&]() -> asio::awaitable<void>
+	{
+		co_await Globals::TwitchAPI->Run( OnMessage );
+	}, asio::detached );
 
-	return 0;
+	asio::signal_set Signals{ Globals::IOC, SIGINT, SIGTERM };
+	Signals.async_wait( [&] ( auto, auto )
+	{
+		Globals::Work.reset();
+	} );
+
+	for ( auto& T : Pool ) T.join();
 }

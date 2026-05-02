@@ -1,6 +1,7 @@
 #include "TwitchBot.h"
 
 #include "Components/TUI/TUI.h"
+#include "Globals/Globals.h"
 
 namespace Components
 {
@@ -88,14 +89,14 @@ namespace Components
 		}
 	}
 
-	TwitchBot::TwitchBot( TokenManager& Tokens, const std::string_view Nick ) : Tokens( Tokens ), Nick( Nick ), SSLC( ssl::context::tlsv12_client ), WebSocket( IOC, SSLC )
+	TwitchBot::TwitchBot( TokenManager& Tokens, const std::string_view Nick ) : Tokens( Tokens ), Nick( Nick ), SSLC( ssl::context::tlsv12_client ), WebSocket( Globals::IOC, SSLC )
 	{
 		SSLC.set_default_verify_paths();
 	}
 
 	void TwitchBot::Connect()
 	{
-		tcp::resolver Resolver{ IOC };
+		tcp::resolver Resolver{ Globals::IOC };
 		const auto    Results = Resolver.resolve( "irc-ws.chat.twitch.tv", "443" );
 		asio::connect( beast::get_lowest_layer( WebSocket ), Results );
 
@@ -108,9 +109,13 @@ namespace Components
 
 	void TwitchBot::Login( const std::span<const std::string_view> ChannelsToJoin )
 	{
-		SendRaw( "PASS oauth:" + Tokens.GetAccessToken() );
-		SendRaw( "NICK " + Nick );
-		SendRaw( "CAP REQ :twitch.tv/tags twitch.tv/commands" );
+		std::string OAuth       = "PASS oauth:" + Tokens.GetAccessToken();
+		std::string NickRequest = "NICK " + this->Nick;
+		std::string CapReq      = "CAP REQ :twitch.tv/tags twitch.tv/commands";
+
+		SendRaw( OAuth );
+		SendRaw( NickRequest );
+		SendRaw( CapReq );
 
 		for ( const auto Channel : ChannelsToJoin )
 		{
@@ -118,33 +123,43 @@ namespace Components
 			std::ranges::transform( Lower, Lower.begin(), tolower );
 			Channels.insert( Lower );
 			PrintDebug( "IRC: Joined {}", Channel );
-			SendRaw( "JOIN #" + Lower );
+			std::string Line = "JOIN #" + Lower;
+			SendRaw( Line );
 		}
 
-		PrintOk( "IRC: Logged in as {}, joined {} channel(s)", Nick, Channels.size() );
+		PrintOk( "IRC: Logged in as {}, joined {} channel(s)", this->Nick, Channels.size() );
 	}
 
 	void TwitchBot::Join( const std::string_view Channel )
 	{
 		std::string Lower{ Channel };
 		std::ranges::transform( Lower, Lower.begin(), ::tolower );
-		if ( Channels.insert( Lower ).second ) SendRaw( "JOIN #" + Lower );
+		if ( Channels.insert( Lower ).second )
+		{
+			std::string Line = "JOIN #" + Lower;
+			SendRaw( Line );
+		}
 	}
 
 	void TwitchBot::Part( const std::string_view Channel )
 	{
 		std::string Lower{ Channel };
 		std::ranges::transform( Lower, Lower.begin(), ::tolower );
-		if ( Channels.erase( Lower ) ) SendRaw( "PART #" + Lower );
+		if ( Channels.erase( Lower ) )
+		{
+			std::string Line = "PART #" + Lower;
+			SendRaw( Line );
+		}
 	}
 
-	void TwitchBot::Run( const MessageHandler& OnMessage )
+	asio::awaitable<void> TwitchBot::Run( const MessageHandler& OnMessage )
 	{
 		beast::flat_buffer Buffer;
+		std::string        PongResponse = "PONG :tmi.twitch.tv";
 
 		while ( true )
 		{
-			WebSocket.read( Buffer );
+			co_await WebSocket.async_read( Buffer, asio::use_awaitable );
 			std::string Raw = beast::buffers_to_string( Buffer.data() );
 			Buffer.clear();
 
@@ -156,14 +171,8 @@ namespace Components
 
 				if ( !Line.empty() )
 				{
-					if ( Line.starts_with( "PING" ) )
-					{
-						SendRaw( "PONG :tmi.twitch.tv" );
-					}
-					else if ( auto Message = ParseMessage( Line ); Message.has_value() )
-					{
-						OnMessage( Message.value() );
-					}
+					if ( Line.starts_with( "PING" ) ) co_await SendRawAsync( PongResponse );
+					else if ( auto Message = ParseMessage( Line ); Message.has_value() ) OnMessage( Message.value() );
 				}
 
 				if ( End == std::string_view::npos ) break;
@@ -172,18 +181,27 @@ namespace Components
 		}
 	}
 
-	void TwitchBot::SendChat( const std::string_view Channel, const std::string_view Message )
+	asio::awaitable<void> TwitchBot::SendRawAsync( std::string& Line )
 	{
-		SendRaw( "PRIVMSG #" + std::string( Channel ) + " : " + std::string( Message ) );
+		Line += "\r\n";
+		co_await WebSocket.async_write( asio::buffer( Line ), asio::use_awaitable );
 	}
 
-	void TwitchBot::ReplyTo( const TwitchMessage& Parent, const std::string_view Message )
+	void TwitchBot::SendChat( const std::string_view Channel, const std::string Message )
 	{
-		SendRaw( "@reply-parent-msg-id=" + Parent.ID + " PRIVMSG " + Parent.Channel + " :" + std::string( Message ) );
+		std::string Line = "PRIVMSG " + std::string( Channel ) + " : " + std::string( Message );
+		SendRaw( Line );
 	}
 
-	void TwitchBot::SendRaw( const std::string& Line )
+	void TwitchBot::ReplyTo( const TwitchMessage& Parent, const std::string Message )
 	{
-		WebSocket.write( asio::buffer( Line + "\r\n" ) );
+		std::string Line = "@reply-parent-msg-id=" + Parent.ID + " PRIVMSG " + Parent.Channel + " :" + std::string( Message );
+		SendRaw( Line );
+	}
+
+	void TwitchBot::SendRaw( std::string& Line )
+	{
+		Line += "\r\n";
+		WebSocket.write( asio::buffer( Line ) );
 	}
 }
