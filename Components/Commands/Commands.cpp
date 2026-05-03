@@ -2,6 +2,7 @@
 
 #include "Accounts/Accounts.h"
 #include "Active/Active.h"
+#include "Components/Events/OnEndGame/OnEndGame.h"
 #include "Today/Today.h"
 #include "Components/TUI/TUI.h"
 #include "Elo/Elo.h"
@@ -61,6 +62,26 @@ namespace Components
 		Command SentCommand{ .Context = Message };
 
 		auto [ Operation, Argument1, Argument2 ] = ParseCommand( SentCommand.Context.Text );
+
+		if ( Operation == "!debug" && Message.Username == "angelroom01" )
+		{
+			auto Account = Globals::LeagueAPI->GetActiveAccount( "angelroom01" );
+			if ( Account )
+			{
+				const auto& ActiveData = Account->GetData( Account->LastGameModePlayed );
+
+				PrintDebug( "Debug Account {}#{} has {} games", Account->Info.SummonerName, Account->Info.TagLine, ActiveData->Games.size() );
+
+				for ( const auto&& [ Index, Game ] : ActiveData->Games | std::views::enumerate )
+				{
+					PrintDebug( "{}: {} {}/{}/{}", Index, Game.Champion, Game.KDA.Kills, Game.KDA.Deaths, Game.KDA.Assists );
+				}
+
+				if ( !ActiveData->Games.empty() ) Event::OnEndGame::Trigger( "angelroom01", ActiveData->Games.back() );
+			}
+			PrintDebug( "Debug Command fired" );
+			co_return;
+		}
 
 		SentCommand.ChannelName = std::string( SentCommand.Context.Channel ).substr( Hash + 1 );
 		SentCommand.Operation   = std::string( Operation );

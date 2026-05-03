@@ -86,18 +86,19 @@ namespace Components::Operation
 
 		std::string List( const Command* Data )
 		{
-			const auto  RiotData = Globals::LeagueAPI->GetData( Data->ChannelName );
+			const auto RiotData = Globals::LeagueAPI->GetData( Data->ChannelName );
+			if ( !RiotData ) return "";
 			std::string Response = "Accounts: ";
 
-			if ( RiotData.Accounts.empty() )
+			if ( RiotData->Accounts.empty() )
 			{
 				return std::format( "{} has no accounts registered", Data->ChannelName );
 			}
 
-			for ( const auto&& [ Index, Account ] : RiotData.Accounts | std::views::enumerate )
+			for ( const auto&& [ Index, Account ] : RiotData->Accounts | std::views::enumerate )
 			{
 				if ( Index != 0 ) Response += " / ";
-				Response += std::format( "{}#{} ({})", Account.SummonerName, Account.TagLine, Account.Region );
+				Response += std::format( "{}#{} ({})", Account->Info.SummonerName, Account->Info.TagLine, Account->Info.Region );
 			}
 
 			return Response;

@@ -4,6 +4,7 @@
 #include "Components/API/API.h"
 #include "Components/Database/Database.h"
 #include "Components/Riot/Riot.h"
+#include "Components/Riot/Riot.h"
 #include "Components/TwitchBot/TwitchBot.h"
 
 // If you're not based in EU (aka closer to NA/SEA/ASIA), comment/uncomment one of these (only 1 should be active!)
@@ -22,4 +23,20 @@ namespace Globals
 	// Network Stuff
 	inline boost::asio::io_context          IOC = {};
 	inline boost::asio::executor_work_guard Work{ make_work_guard( IOC ) };
+
+	inline uint32_t FNV1a( std::string_view String )
+	{
+		uint32_t           Hash  = 0x811C9DC5;
+		constexpr uint32_t Prime = 0x1000193;
+
+		auto HashCharacter = [&] ( const char c )
+		{
+			Hash = Hash ^ static_cast<uint8_t>( c );
+			Hash *= Prime;
+		};
+
+		std::ranges::for_each( String, HashCharacter );
+
+		return Hash;
+	}
 }

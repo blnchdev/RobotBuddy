@@ -14,14 +14,16 @@ namespace Components::Operation
 
 			auto Accumulate = [&] ( const Components::KDA& Accumulated, const GameSummary& Summary ) -> Components::KDA
 			{
-				return { .Kills = Accumulated.Kills + Summary.KDA.Kills, .Deaths = Accumulated.Deaths + Summary.KDA.Deaths, .Assists = Accumulated.Assists + Summary.KDA.Assists, .Ratio = 0.f };
+				return Components::KDA( Accumulated.Kills + Summary.KDA.Kills, Accumulated.Deaths + Summary.KDA.Deaths, Accumulated.Assists + Summary.KDA.Assists );
 			};
 
-			const auto [ K, D, A, _ ] = std::accumulate( ActiveAccount->Summaries.begin(), ActiveAccount->Summaries.end(), Components::KDA{}, Accumulate );
+			const auto GameData = ActiveAccount->GetData( ActiveAccount->LastGameModePlayed );
+
+			const auto [ K, D, A, _ ] = std::accumulate( GameData->Games.begin(), GameData->Games.end(), Components::KDA( 0, 0, 0 ), Accumulate );
 
 			std::string Ratio = D > 0 ? std::format( "{:.2f}", static_cast<float>( K + A ) / static_cast<float>( D ) ) : "Perfect";
 
-			return std::format( "{} currently has a KDA of {}/{}/{} ({}) over {} games", Data->ChannelName, K, D, A, Ratio, ActiveAccount->Summaries.size() );
+			return std::format( "{} currently has a KDA of {}/{}/{} ({}) over {} games", Data->ChannelName, K, D, A, Ratio, GameData->Games.size() );
 		}
 	}
 

@@ -38,7 +38,7 @@ namespace Components::Operation
 				return std::format( "No account is linked to {}", ChannelID );
 			}
 
-			return std::format( "https://op.gg/lol/summoners/{}/{}-{}", GetServerDisplayName( ActiveAccount->Region ), ActiveAccount->SummonerName, ActiveAccount->TagLine );
+			return std::format( "https://op.gg/lol/summoners/{}/{}-{}", GetServerDisplayName( ActiveAccount->Info.Region ), ActiveAccount->Info.SummonerName, ActiveAccount->Info.TagLine );
 		}
 	}
 

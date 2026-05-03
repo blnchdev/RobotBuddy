@@ -39,7 +39,7 @@ int main()
 	Globals::DB = std::make_unique<Database>( "Accounts.db" );
 	PrintDebug( "Loaded Database" );
 
-	const auto Streamers = Globals::DB->GetStreamers();
+	auto Streamers = Globals::DB->GetStreamers();
 
 	TokenManager Tokens( Environment::Get( "TWITCH_CLIENT_ID" ), Environment::Get( "TWITCH_CLIENT_SECRET" ), Environment::Get( "TWITCH_ACCESS_TOKEN" ), Environment::Get( "TWITCH_REFRESH_TOKEN" ) );
 	PrintDebug( "Loaded Twitch TokenManager" );
@@ -52,7 +52,7 @@ int main()
 	Globals::TwitchAPI->Login( ToJoin );
 	PrintDebug( "Loaded TwitchAPI" );
 
-	constexpr size_t         THREAD_COUNT = 4;
+	constexpr size_t         THREAD_COUNT = 10;
 	std::vector<std::thread> Pool         = {};
 	for ( auto i{ 0ULL }; i < THREAD_COUNT; ++i )
 	{
