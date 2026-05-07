@@ -122,13 +122,15 @@ namespace Components
 			return Emerald;
 		case 'D':
 			return Diamond;
+		case 'M':
+			return Master;
 		case 'C':
 			return Challenger;
 		default:
 			break;
 		}
 
-		return Iron;
+		std::unreachable();
 	}
 
 	inline RoleEnum DisplayToRole( const std::string_view Display )
@@ -310,6 +312,13 @@ namespace Components
 		return RankEntry( Rank, Division, Remainder );
 	}
 
+	struct PersistentRankData
+	{
+		float   AverageGain, AverageLoss;
+		int32_t WinCount,    LossCount;
+		int16_t PeakLP;
+	};
+
 	struct GameSummary
 	{
 		uint64_t    GameID;
@@ -331,40 +340,27 @@ namespace Components
 		[[nodiscard]] bool WasRanked() const { return Type == GameType::SOLOQ || Type == GameType::FLEX; }
 	};
 
+	struct RiotAccount; // Forward...
+	struct StreamerData;
+
 	struct GameModeData
 	{
 		struct
 		{
-			std::unique_ptr<RankEntry> SessionStart = nullptr;
-			std::unique_ptr<RankEntry> LastKnown    = nullptr;
-			int16_t                    TotalDeltaLP = 0;
+			std::unique_ptr<RankEntry> SessionStart   = nullptr;
+			std::unique_ptr<RankEntry> LastKnown      = nullptr;
+			int16_t                    SessionDeltaLP = 0;
+			bool                       IsUnranked     = false;
+
+			std::unique_ptr<PersistentRankData> PersistentData = {};
 		} Rank;
 
+		RiotAccount*             Owner = nullptr;
 		GameType                 Type;
 		std::vector<GameSummary> Games = {};
 
 		// Returns DeltaLP
-		int16_t Push( const RankEntry& NewRank )
-		{
-			if ( !Rank.SessionStart || !Rank.LastKnown )
-			{
-				this->Populate( NewRank );
-				return 0;
-			}
-
-			const int16_t OldLP = RankToLP( *Rank.LastKnown );
-			const int16_t NewLP = RankToLP( NewRank );
-			const int16_t Delta = static_cast<int16_t>( NewLP ) - OldLP;
-
-			Rank.TotalDeltaLP += static_cast<int16_t>( Delta );
-
-			Rank.LastKnown->Rank     = NewRank.Rank;
-			Rank.LastKnown->Division = NewRank.Division;
-			Rank.LastKnown->LP       = NewRank.LP;
-			Rank.LastKnown->RefreshData();
-
-			return Delta;
-		}
+		int16_t Push( const RankEntry& NewRank );
 
 		void Populate( const RankEntry& StartRank )
 		{
@@ -374,13 +370,10 @@ namespace Components
 
 		GameModeData() = default;
 
-		explicit GameModeData( const GameType Type ) : Type( Type )
+		explicit GameModeData( RiotAccount* Owner, const GameType Type ) : Owner( Owner ), Type( Type )
 		{
 		}
 	};
-
-	struct RiotAccount; // Forward...
-	struct StreamerData;
 
 	struct ActiveGame
 	{
@@ -404,14 +397,14 @@ namespace Components
 		} Info;
 
 		// Ranked Modes
-		GameModeData SoloQ = GameModeData( GameType::SOLOQ );
-		GameModeData FlexQ = GameModeData( GameType::FLEX );
+		GameModeData SoloQ = GameModeData( this, GameType::SOLOQ );
+		GameModeData FlexQ = GameModeData( this, GameType::FLEX );
 
 		// Unranked Modes
-		GameModeData Normal = GameModeData( GameType::UNRANKED );
-		GameModeData ARAM   = GameModeData( GameType::ARAM );
-		GameModeData Arena  = GameModeData( GameType::ARENA );
-		GameModeData Other  = GameModeData( GameType::OTHER );
+		GameModeData Normal = GameModeData( this, GameType::UNRANKED );
+		GameModeData ARAM   = GameModeData( this, GameType::ARAM );
+		GameModeData Arena  = GameModeData( this, GameType::ARENA );
+		GameModeData Other  = GameModeData( this, GameType::OTHER );
 
 		GameType                    LastGameModePlayed = GameType::SOLOQ;
 		std::unique_ptr<ActiveGame> CurrentGame        = nullptr;
@@ -447,6 +440,7 @@ namespace Components
 	struct StreamerData
 	{
 		std::string Channel;
+		int32_t     ID;
 
 		std::shared_ptr<RiotAccount>              Active   = nullptr;
 		std::vector<std::shared_ptr<RiotAccount>> Accounts = {};

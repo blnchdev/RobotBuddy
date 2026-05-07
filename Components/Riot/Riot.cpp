@@ -166,6 +166,40 @@ namespace Components
 		}
 	}
 
+	int16_t GameModeData::Push( const RankEntry& NewRank )
+	{
+		if ( !Rank.SessionStart || !Rank.LastKnown )
+		{
+			this->Populate( NewRank );
+			return 0;
+		}
+
+		const int16_t OldLP = RankToLP( *Rank.LastKnown );
+		const int16_t NewLP = RankToLP( NewRank );
+		const int16_t Delta = static_cast<int16_t>( NewLP ) - OldLP;
+
+		if ( Delta != 0 )
+		{
+			int32_t& ScoreCount = Delta > 0 ? this->Rank.PersistentData->WinCount : this->Rank.PersistentData->LossCount;
+			float&   Average    = Delta > 0 ? this->Rank.PersistentData->AverageGain : this->Rank.PersistentData->AverageLoss;
+			++ScoreCount;
+			Average = Average + ( static_cast<float>( Delta ) - Average ) / static_cast<float>( ScoreCount );
+
+			this->Rank.PersistentData->PeakLP = std::max( this->Rank.PersistentData->PeakLP, NewLP );
+
+			asio::co_spawn( Globals::IOC, Globals::DB->PushRankData( Owner->Info.Owner->ID, Owner->Info.PUUID, Type, *this->Rank.PersistentData ), asio::detached );
+		}
+
+		Rank.SessionDeltaLP += static_cast<int16_t>( Delta );
+
+		Rank.LastKnown->Rank     = NewRank.Rank;
+		Rank.LastKnown->Division = NewRank.Division;
+		Rank.LastKnown->LP       = NewRank.LP;
+		Rank.LastKnown->RefreshData();
+
+		return Delta;
+	}
+
 	asio::awaitable<void> RiotAccount::Populate()
 	{
 		this->WasPopulated = true;
@@ -276,7 +310,7 @@ namespace Components
 				}
 
 				this->LastGameModePlayed = this->CurrentGame->Type;
-				// Event::OnEndGame::Trigger( this->Info.Owner->Channel, Summary );
+				Event::OnEndGame::Trigger( this->Info.Owner->Channel, Summary );
 				Games.push_back( Summary );
 				this->CurrentGame = nullptr;
 			}
@@ -328,11 +362,42 @@ namespace Components
 			{
 				Account->SoloQ.Populate( SoloQ.value() );
 			}
+			else
+			{
+				Account->SoloQ.Rank.IsUnranked = true;
+			}
 
 			if ( FlexQ.has_value() )
 			{
 				Account->FlexQ.Populate( FlexQ.value() );
 			}
+			else
+			{
+				Account->FlexQ.Rank.IsUnranked = true;
+			}
+		}
+
+		{
+			auto PopulateOrDefault = [] ( RiotAccount* Target, const GameType RankedType )
+			{
+				const auto Data     = Globals::DB->GetRankData( Target->Info.Owner->ID, Target->Info.PUUID, RankedType );
+				auto&      ModeData = RankedType == GameType::SOLOQ ? Target->SoloQ : Target->FlexQ;
+
+				if ( Data.has_value() )
+				{
+					ModeData.Rank.PersistentData = std::make_unique<PersistentRankData>( Data.value() );
+				}
+				else
+				{
+					if ( ModeData.Rank.IsUnranked ) return;
+
+					ModeData.Rank.PersistentData = std::make_unique<PersistentRankData>( 0.f, 0.f, 0, 0, 0 );
+					Globals::DB->PushRankData( Target->Info.Owner->ID, Target->Info.PUUID, RankedType, *ModeData.Rank.PersistentData );
+				}
+			};
+
+			PopulateOrDefault( Account.get(), GameType::SOLOQ );
+			PopulateOrDefault( Account.get(), GameType::FLEX );
 		}
 
 		co_return Account;
@@ -529,7 +594,7 @@ namespace Components
 			if ( Result.has_value() ) Ranks.push_back( Result.value() );
 		}
 
-		RankEntry AverageElo = LPToRank( GetAverageLP( Ranks ) );
+		RankEntry AverageElo = LPToRank( static_cast<int16_t>( GetAverageLP( Ranks ) ) );
 		GameType  Type       = QueueIDToType( QueueID );
 
 		co_return ActiveGame( ActiveAccount.get(), ChampionMap[ ChampionID ], AverageElo, QueueID, Type );
@@ -696,7 +761,7 @@ namespace Components
 		if ( !Account ) co_return false;
 
 		Streamer->Accounts.push_back( std::move( Account ) );
-		( void )Globals::DB->AddAccount( ChannelName, PUUID );
+		( void )Globals::DB->AddAccount( Streamer->ID, PUUID );
 		co_return true;
 	}
 
@@ -723,7 +788,7 @@ namespace Components
 
 			if ( PUUID.has_value() )
 			{
-				( void )Globals::DB->RemoveAccount( ChannelName, PUUID.value() );
+				( void )Globals::DB->RemoveAccount( Iterator->second->ID, PUUID.value() );
 			}
 		}
 
@@ -737,8 +802,14 @@ namespace Components
 
 		if ( Iterator != this->Streamers.end() ) return false;
 
+		const std::optional<int32_t> ID = Globals::DB->AddStreamer( ChannelName );
+
+		if ( !ID.has_value() ) return false;
+
 		auto Name               = std::string( ChannelName );
-		this->Streamers[ Hash ] = std::make_unique<StreamerData>( Name );
+		auto Data               = std::make_unique<StreamerData>( Name );
+		Data->ID                = ID.value();
+		this->Streamers[ Hash ] = std::move( Data );
 
 		return true;
 	}
@@ -750,25 +821,34 @@ namespace Components
 
 		for ( const auto& Target : Targets )
 		{
-			auto           Name    = std::string( Target.StreamerID );
-			const uint32_t Hash    = Globals::FNV1a( Name );
-			auto           Data    = std::make_unique<StreamerData>( Name );
-			auto*          Pointer = Data.get();
+			auto           Name = std::string( Target.ChannelName );
+			const uint32_t Hash = Globals::FNV1a( Name );
+			auto           Data = std::make_unique<StreamerData>( Name );
+			Data->ID            = Target.StreamerID;
+			auto* Pointer       = Data.get();
 
 			this->Streamers[ Hash ] = std::move( Data );
 
-			Pointer->Accounts.reserve( Target.PUUIDs.size() );
+			Pointer->Accounts.reserve( Target.Accounts.size() );
 
-			for ( const auto& PUUID : Target.PUUIDs )
+			for ( const auto& PUUID : Target.Accounts )
 			{
 				++Pending;
 
-				asio::co_spawn( Globals::IOC, [&Target, Pointer, &Pending, &Ready, PUUID = std::string( PUUID )]() -> asio::awaitable<void>
+				asio::co_spawn( Globals::IOC, [Pointer, &Pending, &Ready, PUUID = std::string( PUUID )]() -> asio::awaitable<void>
 				{
-					const auto Account = co_await RiotAccount::Create( Pointer, PUUID );
-					if ( Account ) Pointer->Accounts.push_back( Account );
+					try
+					{
+						const auto Account = co_await RiotAccount::Create( Pointer, PUUID );
+						if ( Account ) Pointer->Accounts.push_back( Account );
 
-					if ( --Pending == 0 ) Ready.set_value();
+						PrintDebug( "-- {}#{}", Account->Info.SummonerName, Account->Info.TagLine );
+						if ( --Pending == 0 ) Ready.set_value();
+					}
+					catch ( std::exception& e )
+					{
+						PrintError( "co_spawn error: {}", e.what() );
+					}
 				}, asio::detached );
 			}
 		}

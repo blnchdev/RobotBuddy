@@ -8,15 +8,18 @@ namespace Components::Operation
 {
 	namespace
 	{
-		std::string GetResponse( std::string_view StreamerID )
+		std::string GetResponse( std::string_view ChannelName )
 		{
-			const auto Data          = Globals::DB->GetStreamer( StreamerID );
-			const auto ActiveAccount = Globals::LeagueAPI->GetActiveAccount( StreamerID );
+			const auto ActiveAccount = Globals::LeagueAPI->GetActiveAccount( ChannelName );
 
-			if ( !Data.has_value() || !ActiveAccount )
+			if ( !ActiveAccount )
 			{
-				return std::format( "No account linked to {}", StreamerID );
+				return std::format( "No account linked to {}", ChannelName );
 			}
+
+			// Bit of scaffolding to get there
+			const auto StreamerID = ActiveAccount->Info.Owner->ID;
+			// const auto StreamerData = Globals::DB->GetSetting( StreamerID, );
 
 			PrintDebug( "ActiveAccount: {}", ActiveAccount->Info.SummonerName );
 
@@ -25,7 +28,7 @@ namespace Components::Operation
 			const auto  Losses   = static_cast<uint32_t>( GameData->Games.size() ) - Wins;
 			const float WinRate  = Wins + Losses > 0 ? static_cast<float>( Wins ) / static_cast<float>( Wins + Losses ) * 100.f : 0.f;
 
-			std::string Response = std::format( "{}W/{}L - {:.0f}% Winrate ", Wins, Losses, WinRate );
+			/*std::string Response = std::format( "{}W/{}L - {:.0f}% Winrate ", Wins, Losses, WinRate );
 
 			if ( GameData->Rank.TotalDeltaLP != 0 )
 			{
@@ -34,10 +37,10 @@ namespace Components::Operation
 
 			for ( const auto& Summary : std::views::reverse( GameData->Games ) )
 			{
-				Response += Summary.Win ? Data->WinEmoji : Data->LoseEmoji;
-			}
+				Response += Summary.Win ? StreamerData. : Data->LoseEmoji;
+			}*/
 
-			return Response;
+			return "Maintenance";
 		}
 	}
 

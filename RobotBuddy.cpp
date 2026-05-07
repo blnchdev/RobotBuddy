@@ -36,7 +36,8 @@ int main()
 	Globals::BotAPI = std::make_unique<API>();
 	PrintDebug( "Started API, listening on port {}", PORT );
 
-	Globals::DB = std::make_unique<Database>( "Accounts.db" );
+	std::string ConnectionString = "host=127.0.0.1 port=5432 dbname=RobotBuddy user=robotbuddy password=" + Environment::Get( "POSTGRES_DB_PASSWORD" );
+	Globals::DB                  = std::make_unique<Database>( ConnectionString );
 	PrintDebug( "Loaded Database" );
 
 	auto Streamers = Globals::DB->GetStreamers();
@@ -45,12 +46,25 @@ int main()
 	PrintDebug( "Loaded Twitch TokenManager" );
 
 	std::vector<std::string_view> ToJoin;
-	std::ranges::for_each( Streamers, [&] ( const Database::Streamer& S ) { if ( S.IsJoinEnabled ) ToJoin.emplace_back( S.StreamerID ); } );
+	std::ranges::for_each( Streamers, [&] ( const Database::Streamer& S ) { if ( S.Settings.IsJoinEnabled ) ToJoin.emplace_back( S.ChannelName ); } );
+
+	PrintDebug( "ToJoin Size {}", ToJoin.size() );
 
 	Globals::TwitchAPI = std::make_unique<TwitchBot>( Tokens, Environment::Get( "TWITCH_BOT_NICK" ) );
 	Globals::TwitchAPI->Connect();
 	Globals::TwitchAPI->Login( ToJoin );
 	PrintDebug( "Loaded TwitchAPI" );
+
+
+	for ( const auto& Streamer : Streamers )
+	{
+		PrintOk( "Channel Name '{}'", Streamer.ChannelName );
+
+		if ( Streamer.ChannelName == "angelroom01" )
+		{
+			//
+		}
+	}
 
 	constexpr size_t         THREAD_COUNT = 10;
 	std::vector<std::thread> Pool         = {};

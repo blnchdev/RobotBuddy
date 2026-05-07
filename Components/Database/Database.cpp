@@ -1,151 +1,300 @@
 #include "Database.h"
 
+#include "Components/Riot/Riot.h"
+#include "Components/TUI/TUI.h"
+
+#pragma comment(lib, "Secur32.lib")
+#pragma comment(lib, "Wldap32.lib")
+
 namespace Components
 {
-	Database::Database( const std::string& Path ) : DB{ Path, SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE }
+	Database::Database( const std::string& ConnectionString ) : Connection{ ConnectionString }
 	{
-		DB.exec( "PRAGMA foreign_keys = ON" );
+		pqxx::work Work{ Connection };
 
-		DB.exec( R"(
-	        CREATE TABLE IF NOT EXISTS Streamers (
-	            StreamerID      TEXT PRIMARY KEY,
-	            IsJoinEnabled   INTEGER NOT NULL DEFAULT 1,
-	            WinEmoji        TEXT NOT NULL DEFAULT '🟦',
-	            LoseEmoji       TEXT NOT NULL DEFAULT '🟥'
-	        )
-	    )" );
+		Work.exec( R"(
+            CREATE TABLE IF NOT EXISTS Streamers (
+                StreamerID   SERIAL PRIMARY KEY,
+                ChannelName  TEXT NOT NULL UNIQUE
+            ))" );
 
-		DB.exec( R"(
-	        CREATE TABLE IF NOT EXISTS Accounts (
-	            ID          INTEGER PRIMARY KEY AUTOINCREMENT,
-	            StreamerID  TEXT NOT NULL REFERENCES Streamers(StreamerID) ON DELETE CASCADE,
-	            PUUID       TEXT NOT NULL,
-	            UNIQUE(StreamerID, PUUID)
-	        )
-	    )" );
+		Work.exec( R"(
+            CREATE TABLE IF NOT EXISTS Accounts (
+                StreamerID  INT NOT NULL REFERENCES Streamers(StreamerID) ON DELETE CASCADE,
+                AccountID   TEXT NOT NULL,
+                PRIMARY KEY (StreamerID, AccountID)
+            ))" );
 
-		DB.exec( "CREATE INDEX IF NOT EXISTS IDXAccountsStreamer ON Accounts(StreamerID)" );
+		Work.exec( R"(
+            CREATE TABLE IF NOT EXISTS Settings (
+                SettingID     SERIAL PRIMARY KEY,
+                KeyName       TEXT NOT NULL UNIQUE,
+                DefaultValue  TEXT NOT NULL
+            ))" );
+
+		Work.exec( R"(
+            CREATE TABLE IF NOT EXISTS StreamerSettings (
+                StreamerID  INT NOT NULL REFERENCES Streamers(StreamerID) ON DELETE CASCADE,
+                SettingID   INT NOT NULL REFERENCES Settings(SettingID) ON DELETE CASCADE,
+                Value       TEXT NOT NULL,
+                PRIMARY KEY (StreamerID, SettingID)
+            ))" );
+
+		Work.exec( R"(
+			CREATE TABLE IF NOT EXISTS RankData (
+				StreamerID	INT NOT NULL,
+				AccountID	TEXT NOT NULL,
+				RankID		INT NOT NULL,
+                AverageGain REAL NOT NULL,
+				AverageLoss REAL NOT NULL,
+				WinCount	INT NOT NULL,
+				LossCount	INT NOT NULL,
+				PeakLP		INT NOT NULL,
+				PRIMARY KEY (StreamerID, AccountID, RankID),
+				FOREIGN KEY (StreamerID, AccountID) REFERENCES Accounts(StreamerID, AccountID) ON DELETE CASCADE
+			))" );
+
+		Work.exec( "CREATE INDEX IF NOT EXISTS IDXAccountsStreamer ON Accounts(StreamerID)" );
+		Work.exec( "CREATE INDEX IF NOT EXISTS IDXStreamerSettingsStreamer ON StreamerSettings(StreamerID)" );
+
+		Work.commit();
 	}
 
-	bool Database::AddStreamer( const std::string_view StreamerID ) const
+	std::optional<int32_t> Database::AddStreamer( const std::string_view ChannelName ) const
 	{
-		SQLite::Statement Query{ DB, "INSERT OR IGNORE INTO Streamers(StreamerID) VALUES (?)" };
-		Query.bind( 1, StreamerID.data() );
-		return Query.exec() > 0;
+		pqxx::work Work{ Connection };
+
+		const auto Result = Work.exec( "INSERT INTO Streamers(ChannelName) VALUES ($1) ON CONFLICT DO NOTHING RETURNING StreamerID", pqxx::params{ ChannelName } );
+
+		Work.commit();
+
+		if ( Result.empty() ) return std::nullopt;
+		return Result.front()[ "StreamerID" ].as<int32_t>();
 	}
 
-	bool Database::RemoveStreamer( const std::string_view StreamerID ) const
+	bool Database::RemoveStreamer( const int32_t StreamerID ) const
 	{
-		SQLite::Statement Query{ DB, "DELETE FROM Streamers WHERE StreamerID = ?" };
-		Query.bind( 1, StreamerID.data() );
-		return Query.exec() > 0;
-	}
+		pqxx::work Work{ Connection };
 
-	std::optional<Database::Streamer> Database::GetStreamer( const std::string_view StreamerID ) const
-	{
-		SQLite::Statement Query
-		{
-			DB,
-			"SELECT StreamerID, IsJoinEnabled, WinEmoji, LoseEmoji FROM Streamers WHERE StreamerID = ?"
-		};
+		const auto Result = Work.exec( "DELETE FROM Streamers WHERE StreamerID = $1", pqxx::params{ StreamerID } );
 
-		Query.bind( 1, StreamerID.data() );
-
-		if ( !Query.executeStep() ) return std::nullopt;
-
-		Streamer S
-		{
-			.StreamerID = Query.getColumn( 0 ).getText(),
-			.IsJoinEnabled = Query.getColumn( 1 ).getInt() != 0,
-			.WinEmoji = Query.getColumn( 2 ).getText(),
-			.LoseEmoji = Query.getColumn( 3 ).getText(),
-		};
-
-		return PopulateAccounts( std::move( S ) );
+		Work.commit();
+		return Result.affected_rows() > 0;
 	}
 
 	std::vector<Database::Streamer> Database::GetStreamers() const
 	{
-		SQLite::Statement Query
-		{
-			DB,
-			"SELECT StreamerID, IsJoinEnabled, WinEmoji, LoseEmoji FROM Streamers"
-		};
+		pqxx::work Work{ Connection };
+
+		const auto Result = Work.exec( "SELECT StreamerID, ChannelName FROM Streamers" );
 
 		std::vector<Streamer> Out;
+		Out.reserve( Result.size() );
 
-		while ( Query.executeStep() )
+		for ( const auto& Row : Result )
 		{
 			Streamer S
 			{
-				.StreamerID = Query.getColumn( 0 ).getText(),
-				.IsJoinEnabled = Query.getColumn( 1 ).getInt() != 0,
-				.WinEmoji = Query.getColumn( 2 ).getText(),
-				.LoseEmoji = Query.getColumn( 3 ).getText(),
+				.StreamerID = Row[ "StreamerID" ].as<int32_t>(),
+				.ChannelName = Row[ "ChannelName" ].as<std::string>(),
 			};
 
-			Out.emplace_back( PopulateAccounts( std::move( S ) ) );
+			PrintDebug( "Streamer: {} / {}", S.StreamerID, S.ChannelName );
+			Out.emplace_back( PopulateStreamer( Work, std::move( S ) ) );
 		}
 
 		return Out;
 	}
 
-	bool Database::UpdateStreamer( const std::string_view StreamerID, const bool Join, const std::string_view WinEmoji, const std::string_view LoseEmoji ) const
+	bool Database::AddAccount( const int32_t StreamerID, const std::string_view AccountID ) const
 	{
-		SQLite::Statement Query
-		{
-			DB,
-			"UPDATE Streamers SET IsJoinEnabled = ?, WinEmoji = ?, LoseEmoji = ? WHERE StreamerID = ?"
-		};
+		pqxx::work Work{ Connection };
 
-		Query.bind( 1, Join );
-		Query.bind( 2, WinEmoji.data() );
-		Query.bind( 3, LoseEmoji.data() );
-		Query.bind( 4, StreamerID.data() );
+		const auto Result = Work.exec(
+		                              "INSERT INTO Accounts(StreamerID, AccountID) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+		                              pqxx::params{ StreamerID, AccountID }
+		                             );
 
-		return Query.exec() > 0;
+		Work.commit();
+		return Result.affected_rows() > 0;
 	}
 
-	bool Database::AddAccount( const std::string_view StreamerID, const std::string_view PUUID ) const
+	bool Database::RemoveAccount( const int32_t StreamerID, const std::string_view AccountID ) const
 	{
-		SQLite::Statement Query
-		{
-			DB,
-			"INSERT OR IGNORE INTO Accounts(StreamerID, PUUID) VALUES (?, ?)"
-		};
+		pqxx::work Work{ Connection };
 
-		Query.bind( 1, StreamerID.data() );
-		Query.bind( 2, PUUID.data() );
+		const auto Result = Work.exec( "DELETE FROM Accounts WHERE StreamerID = $1 AND AccountID = $2", pqxx::params{ StreamerID, AccountID } );
 
-		return Query.exec() > 0;
+		Work.commit();
+		return Result.affected_rows() > 0;
 	}
 
-	bool Database::RemoveAccount( const std::string_view StreamerID, const std::string_view PUUID ) const
+	std::optional<PersistentRankData> Database::GetRankData( int32_t StreamerID, std::string_view AccountID, const GameType Type ) const
 	{
-		SQLite::Statement Query
+		pqxx::work Work{ Connection };
+
+		if ( Type != GameType::SOLOQ && Type != GameType::FLEX ) return std::nullopt;
+
+		const int32_t RankID = Type == GameType::SOLOQ ? 1 : 2;
+
+		const auto Result = Work.exec(
+		                              "SELECT AverageGain, AverageLoss, WinCount, LossCount, PeakLP FROM RankData WHERE StreamerID = $1 AND AccountID = $2 AND RankID = $3",
+		                              pqxx::params{ StreamerID, AccountID, RankID }
+		                             );
+
+		if ( Result.empty() ) return std::nullopt;
+
+		const auto& Row = Result[ 0 ];
+
+		return PersistentRankData
 		{
-			DB,
-			"DELETE FROM Accounts WHERE StreamerID = ? AND PUUID = ?"
+			.AverageGain = Row[ "AverageGain" ].as<float>(),
+			.AverageLoss = Row[ "AverageLoss" ].as<float>(),
+			.WinCount = Row[ "WinCount" ].as<int32_t>(),
+			.LossCount = Row[ "LossCount" ].as<int32_t>(),
+			.PeakLP = Row[ "PeakLP" ].as<int16_t>(),
 		};
-
-		Query.bind( 1, StreamerID.data() );
-		Query.bind( 2, PUUID.data() );
-
-		return Query.exec() > 0;
 	}
 
-	Database::Streamer Database::PopulateAccounts( Streamer S ) const
+	asio::awaitable<void> Database::PushRankData( int32_t StreamerID, std::string_view AccountID, const GameType Type, PersistentRankData& Data ) const
 	{
-		SQLite::Statement Query
+		if ( Type != GameType::SOLOQ && Type != GameType::FLEX ) co_return;
+
+		const int32_t RankID = Type == GameType::SOLOQ ? 1 : 2;
+
+		pqxx::work Work{ Connection };
+
+		const auto Result = Work.exec(
+		                              "INSERT INTO RankData (StreamerID, AccountID, RankID, AverageGain, AverageLoss, WinCount, LossCount, PeakLP)"
+		                              " VALUES		($1, $2, $3, $4, $5, $6, $7, $8)"
+		                              " ON CONFLICT (StreamerID, AccountID, RankID) DO UPDATE SET"
+		                              " AverageGain = EXCLUDED.AverageGain,"
+		                              " AverageLoss = EXCLUDED.AverageLoss,"
+		                              " WinCount    = EXCLUDED.WinCount,"
+		                              " LossCount   = EXCLUDED.LossCount,"
+		                              " PeakLP      = EXCLUDED.PeakLP",
+		                              pqxx::params{ StreamerID, AccountID, RankID, Data.AverageGain, Data.AverageLoss, Data.WinCount, Data.LossCount, Data.PeakLP }
+		                             );
+
+		Work.commit();
+	}
+
+	std::optional<int32_t> Database::AddSetting( const std::string_view KeyName, const std::string_view DefaultValue ) const
+	{
+		pqxx::work Work{ Connection };
+
+		const auto Result = Work.exec( "INSERT INTO Settings(KeyName, DefaultValue) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING SettingID", pqxx::params{ KeyName, DefaultValue } );
+
+		Work.commit();
+
+		if ( Result.empty() ) return std::nullopt;
+		return Result.front()[ "SettingID" ].as<int32_t>();
+	}
+
+	bool Database::RemoveSetting( const int32_t SettingID ) const
+	{
+		pqxx::work Work{ Connection };
+
+		const auto Result = Work.exec( "DELETE FROM Settings WHERE SettingID = $1", pqxx::params{ SettingID } );
+
+		Work.commit();
+		return Result.affected_rows() > 0;
+	}
+
+	template <typename T>
+	T Database::GetSetting( int32_t StreamerID, SettingIDs SettingID, T DefaultValue )
+	{
+		pqxx::work Work{ Connection };
+
+		const auto Result = Work.exec( R"(
+						SELECT Value
+						FROM StreamerSettings
+						WHERE StreamerID = $1 AND SettingID = $2)", pqxx::params{ StreamerID, static_cast<uint8_t>( SettingID ) } );
+
+		if ( Result.empty() ) return DefaultValue;
+
+		return Result[ 0 ][ 0 ].as<T>();
+	}
+
+	template <>
+	bool Database::GetSetting( int32_t StreamerID, SettingIDs SettingID, const bool DefaultValue )
+	{
+		pqxx::work Work{ Connection };
+
+		const auto Result = Work.exec( R"(
+						SELECT Value
+						FROM StreamerSettings
+						WHERE StreamerID = $1 AND SettingID = $2)", pqxx::params{ StreamerID, static_cast<uint8_t>( SettingID ) } );
+
+		if ( Result.empty() ) return DefaultValue;
+
+		return Result[ 0 ][ 0 ].as<std::string>() == "true";
+	}
+
+	bool Database::SetStreamerSetting( const int32_t StreamerID, const int32_t SettingID, const std::string_view Value ) const
+	{
+		pqxx::work Work{ Connection };
+
+		const auto Result = Work.exec( R"(
+                INSERT INTO StreamerSettings(StreamerID, SettingID, Value)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (StreamerID, SettingID) DO UPDATE SET Value = EXCLUDED.Value
+            )", pqxx::params{ StreamerID, SettingID, Value } );
+
+		Work.commit();
+		return Result.affected_rows() > 0;
+	}
+
+	bool Database::RemoveStreamerSetting( const int32_t StreamerID, const int32_t SettingID ) const
+	{
+		pqxx::work Work{ Connection };
+
+		const auto Result = Work.exec(
+		                              "DELETE FROM StreamerSettings WHERE StreamerID = $1 AND SettingID = $2",
+		                              pqxx::params{ StreamerID, SettingID }
+		                             );
+
+		Work.commit();
+		return Result.affected_rows() > 0;
+	}
+
+	Database::Streamer Database::PopulateStreamer( pqxx::work& Work, Streamer S ) const
+	{
 		{
-			DB,
-			"SELECT PUUID FROM Accounts WHERE StreamerID = ?"
-		};
+			const auto Result = Work.exec( "SELECT AccountID FROM Accounts WHERE StreamerID = $1", pqxx::params{ S.StreamerID } );
 
-		Query.bind( 1, S.StreamerID );
+			S.Accounts.reserve( Result.size() );
 
-		while ( Query.executeStep() ) S.PUUIDs.emplace_back( Query.getColumn( 0 ).getText() );
+			for ( const auto& Row : Result ) S.Accounts.emplace_back( Row[ "AccountID" ].as<std::string>() );
+		}
+
+		{
+			const auto Result = Work.exec( "SELECT SettingID, Value FROM StreamerSettings WHERE StreamerID = $1", pqxx::params{ S.StreamerID } );
+
+			for ( const auto& Row : Result )
+			{
+				int32_t SettingID = Row[ "StreamerID" ].as<int32_t>();
+
+				switch ( static_cast<SettingIDs>( SettingID ) )
+				{
+				case SettingIDs::IsJoinEnabled:
+					S.Settings.IsJoinEnabled = Row[ "Value" ].as<std::string>() == "true";
+					break;
+				case SettingIDs::WinEmoji:
+					S.Settings.WinEmoji = Row[ "Value" ].as<std::string>();
+					break;
+				case SettingIDs::LoseEmoji:
+					S.Settings.LoseEmoji = Row[ "Value" ].as<std::string>();
+					break;
+				default:
+					break;
+				}
+			}
+		}
 
 		return S;
 	}
+
+	template std::string Database::GetSetting( int32_t, SettingIDs, std::string );
+	template int32_t     Database::GetSetting( int32_t, SettingIDs, int32_t );
 }
