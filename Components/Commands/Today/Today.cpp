@@ -17,10 +17,6 @@ namespace Components::Operation
 				return std::format( "No account linked to {}", ChannelName );
 			}
 
-			// Bit of scaffolding to get there
-			const auto StreamerID = ActiveAccount->Info.Owner->ID;
-			// const auto StreamerData = Globals::DB->GetSetting( StreamerID, );
-
 			PrintDebug( "ActiveAccount: {}", ActiveAccount->Info.SummonerName );
 
 			const auto  GameData = ActiveAccount->GetData( ActiveAccount->LastGameModePlayed );
@@ -28,19 +24,22 @@ namespace Components::Operation
 			const auto  Losses   = static_cast<uint32_t>( GameData->Games.size() ) - Wins;
 			const float WinRate  = Wins + Losses > 0 ? static_cast<float>( Wins ) / static_cast<float>( Wins + Losses ) * 100.f : 0.f;
 
-			/*std::string Response = std::format( "{}W/{}L - {:.0f}% Winrate ", Wins, Losses, WinRate );
+			std::string Response = std::format( "{}W/{}L - {:.0f}% Winrate ", Wins, Losses, WinRate );
 
-			if ( GameData->Rank.TotalDeltaLP != 0 )
+			const auto WinEmoji  = Globals::DB->GetSetting<std::string>( ActiveAccount->Info.Owner->ID, SettingIDs::WinEmoji, "🟦" );
+			const auto LoseEmoji = Globals::DB->GetSetting<std::string>( ActiveAccount->Info.Owner->ID, SettingIDs::LoseEmoji, "🟥" );
+
+			if ( GameData->Rank.SessionDeltaLP != 0 )
 			{
-				Response += std::format( "{:+} LP ", GameData->Rank.TotalDeltaLP );
+				Response += std::format( "{:+} LP ", GameData->Rank.SessionDeltaLP );
 			}
 
 			for ( const auto& Summary : std::views::reverse( GameData->Games ) )
 			{
-				Response += Summary.Win ? StreamerData. : Data->LoseEmoji;
-			}*/
+				Response += Summary.Win ? WinEmoji : LoseEmoji;
+			}
 
-			return "Maintenance";
+			return Response;
 		}
 	}
 
