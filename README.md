@@ -3,7 +3,7 @@
 > #### BETA 
 > RobotBuddy is currently in Beta! There are a few features missing, and the web dashboard is not yet available, do stay tuned though!
 
-RobotBuddy is a Twitch bot made to enhance your viewers' League of Legends experience; it was built in modern C++ to prioritse performance and stability
+RobotBuddy is a Twitch bot made to enhance your viewers' League of Legends experience; it was built in modern C++ to prioritize performance and stability
 
 ### Usage
 
