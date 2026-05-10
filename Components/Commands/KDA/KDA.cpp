@@ -14,7 +14,7 @@ namespace Components::Operation
 
 			auto Accumulate = [&] ( const Components::KDA& Accumulated, const GameSummary& Summary ) -> Components::KDA
 			{
-				return Components::KDA( Accumulated.Kills + Summary.KDA.Kills, Accumulated.Deaths + Summary.KDA.Deaths, Accumulated.Assists + Summary.KDA.Assists );
+				return Components::KDA( Accumulated.Kills + Summary.Streamer.KDA.Kills, Accumulated.Deaths + Summary.Streamer.KDA.Deaths, Accumulated.Assists + Summary.Streamer.KDA.Assists );
 			};
 
 			const auto GameData = ActiveAccount->GetData( ActiveAccount->LastGameModePlayed );

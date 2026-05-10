@@ -14,17 +14,42 @@ namespace Components::Operation
 			co_return;
 		}
 
-		auto Response = co_await Globals::LeagueAPI->GetLeagueRank( *ActiveAccount, ActiveAccount->LastGameModePlayed );
+		std::optional<RankEntry> Response   = std::nullopt;
+		bool                     IsUnranked = true;
 
-		if ( Response.has_value() )
+		if ( ActiveAccount->LastGameModePlayed != GameType::SOLOQ && ActiveAccount->LastGameModePlayed != GameType::FLEX )
 		{
-			Globals::TwitchAPI->ReplyTo( Data->Context, std::format( "{} is currently {}", Data->ChannelName, Response->Formatted() ) );
+			const auto& SoloRank = ActiveAccount->GetData( GameType::SOLOQ )->Rank;
+			const auto& FlexRank = ActiveAccount->GetData( GameType::FLEX )->Rank;
+
+			if ( !SoloRank.IsUnranked && SoloRank.LastKnown )
+			{
+				IsUnranked = false;
+				Response   = *SoloRank.LastKnown;
+			}
+			else if ( !FlexRank.IsUnranked && FlexRank.LastKnown )
+			{
+				IsUnranked = false;
+				Response   = *FlexRank.LastKnown;
+			}
 		}
 		else
 		{
-			Globals::TwitchAPI->ReplyTo( Data->Context, std::format( "{} is currently not ranked", Data->ChannelName ) );
+			const auto& Rank = ActiveAccount->GetData( ActiveAccount->LastGameModePlayed )->Rank;
+
+			if ( !Rank.IsUnranked && Rank.LastKnown )
+			{
+				IsUnranked = false;
+				Response   = *Rank.LastKnown;
+			}
 		}
 
-		co_return;
+		if ( IsUnranked || !Response.has_value() )
+		{
+			Globals::TwitchAPI->ReplyTo( Data->Context, std::format( "{} is currently not ranked", Data->ChannelName ) );
+			co_return;
+		}
+
+		Globals::TwitchAPI->ReplyTo( Data->Context, std::format( "{} is currently {}", Data->ChannelName, Response->Formatted() ) );
 	}
 }

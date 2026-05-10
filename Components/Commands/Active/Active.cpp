@@ -6,17 +6,20 @@ namespace Components::Operation
 {
 	asio::awaitable<void> Active( const Command* Data )
 	{
-		auto ActiveGame = co_await Globals::LeagueAPI->GetCurrentGame( Data->ChannelName );
+		const auto  ActiveAccount = Globals::LeagueAPI->GetActiveAccount( Data->ChannelName );
+		std::string Message       = std::format( "{} is not currently in-game!", Data->ChannelName );
 
-		std::string Message;
+		if ( !ActiveAccount )
+		{
+			Globals::TwitchAPI->ReplyTo( Data->Context, Message );
+			co_return;
+		}
 
-		if ( ActiveGame.has_value() )
+		const auto ActiveGame = ActiveAccount->CurrentGame.get();
+
+		if ( ActiveGame )
 		{
 			Message = std::format( "{} is playing {} in a game where the average elo is {}", Data->ChannelName, ActiveGame->Champion, ActiveGame->AverageElo.Formatted() );
-		}
-		else
-		{
-			Message = std::format( "{} is not currently in-game!", Data->ChannelName );
 		}
 
 		Globals::TwitchAPI->ReplyTo( Data->Context, Message );

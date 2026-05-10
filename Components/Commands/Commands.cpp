@@ -8,6 +8,7 @@
 #include "Elo/Elo.h"
 #include "Globals/Globals.h"
 #include "KDA/KDA.h"
+#include "Last/Last.h"
 #include "OPGG/OPGG.h"
 
 namespace Components
@@ -63,32 +64,10 @@ namespace Components
 
 		auto [ Operation, Argument1, Argument2 ] = ParseCommand( SentCommand.Context.Text );
 
-		if ( Operation == "!debug" && Message.Username == "angelroom01" )
-		{
-			auto Account = Globals::LeagueAPI->GetActiveAccount( "angelroom01" );
-			if ( Account )
-			{
-				const auto& ActiveData = Account->GetData( Account->LastGameModePlayed );
-
-				PrintDebug( "Debug Account {}#{} has {} games", Account->Info.SummonerName, Account->Info.TagLine, ActiveData->Games.size() );
-
-				for ( const auto&& [ Index, Game ] : ActiveData->Games | std::views::enumerate )
-				{
-					PrintDebug( "{}: {} {}/{}/{}", Index, Game.Champion, Game.KDA.Kills, Game.KDA.Deaths, Game.KDA.Assists );
-				}
-
-				if ( !ActiveData->Games.empty() ) Event::OnEndGame::Trigger( "angelroom01", ActiveData->Games.back() );
-			}
-			PrintDebug( "Debug Command fired" );
-			co_return;
-		}
-
 		SentCommand.ChannelName = std::string( SentCommand.Context.Channel ).substr( Hash + 1 );
 		SentCommand.Operation   = std::string( Operation );
 		SentCommand.Argument1   = std::string( Argument1 );
 		SentCommand.Argument2   = std::string( Argument2 );
-
-		PrintDebug( "Operation: '{}', Arg1: '{}', Arg2: '{}'", SentCommand.Operation, SentCommand.Argument1, SentCommand.Argument2 );
 
 		static const std::unordered_map<std::string_view, asio::awaitable<void>(*)( const Command* )> Handlers =
 		{
@@ -101,6 +80,8 @@ namespace Components
 			{ "!current", Operation::Active },
 			{ "!elo", Operation::Elo },
 			{ "!kda", Operation::KDA },
+			{ "!last", Operation::Last },
+			{ "!lastgame", Operation::Last }
 		};
 
 		const auto Iterator = Handlers.find( SentCommand.Operation );
