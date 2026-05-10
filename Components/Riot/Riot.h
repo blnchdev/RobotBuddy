@@ -250,18 +250,20 @@ namespace Components
 		static std::array<int16_t, 5> Divisions =
 		{
 			0,
-			300,
-			200,
-			100,
-			0
+			300, // I
+			200, // II
+			100, // III
+			0    // IV
 		};
+
+		if ( Rank.Rank >= Master ) { return Ranks[ std::to_underlying( Rank.Rank ) ] + Rank.LP; }
 
 		return static_cast<int16_t>( Ranks[ std::to_underlying( Rank.Rank ) ] + Divisions[ Rank.Division ] + Rank.LP );
 	}
 
 	inline RankEntry LPToRank( const int16_t LP )
 	{
-		static constexpr std::array<int16_t, 8> RankBases =
+		static std::array<int16_t, static_cast<size_t>( _SIZE )> Ranks =
 		{
 			0,
 			400,
@@ -270,46 +272,47 @@ namespace Components
 			1600,
 			2000,
 			2400,
+			2800,
+			2800,
 			2800
 		};
 
-		static constexpr std::array<int16_t, 4> DivisionBases =
+		static std::array<int16_t, 5> Divisions =
 		{
 			0,
-			100,
+			300,
 			200,
-			300
+			100,
+			0
 		};
 
-		if ( LP >= 2800 ) return RankEntry( Master, 0, static_cast<int16_t>( LP - 2800 ) );
+		if ( LP > 2800 ) return RankEntry( Master, 1, LP - 2800 );
 
-		int16_t  RankBase = 0;
-		RankEnum Rank     = Iron;
-
-		for ( const auto [ Index, Base ] : RankBases | std::views::reverse | std::views::enumerate )
+		RankEnum Rank = Iron;
+		for ( auto i = static_cast<int64_t>( Diamond ); i >= 0LL; --i )
 		{
-			if ( LP >= Base )
+			if ( LP >= Ranks[ i ] )
 			{
-				Rank     = static_cast<RankEnum>( RankBases.size() - 1 - Index );
-				RankBase = Base;
+				Rank = static_cast<RankEnum>( i );
 				break;
 			}
 		}
 
-		int16_t Remainder = LP - RankBase;
-		int8_t  Division  = 4;
+		const int32_t Remainder = LP - Ranks[ std::to_underlying( Rank ) ];
+		uint8_t       Division  = 4;
 
-		for ( const auto [ Index, Base ] : DivisionBases | std::views::reverse | std::views::enumerate )
+		for ( auto i{ 1ull }; i < Divisions.size(); ++i )
 		{
-			if ( Remainder >= Base )
+			if ( Remainder >= Divisions[ i ] )
 			{
-				Division = static_cast<int8_t>( Index + 1 );
-				Remainder -= Base;
+				Division = static_cast<uint8_t>( i );
 				break;
 			}
 		}
 
-		return RankEntry( Rank, Division, Remainder );
+		const int16_t RemainingLP = Remainder - Divisions[ Division ];
+
+		return RankEntry( Rank, Division, RemainingLP );
 	}
 
 	struct PersistentRankData
@@ -412,22 +415,27 @@ namespace Components
 		bool Valid        = false;
 		bool WasPopulated = false;
 
-		// Please just... don't mind this okay, let's pretend this is not here.
-		// Yes I could just &SoloQ, &Normal instead of offsetof(...), but where is the fun in that
 		GameModeData* GetData( const GameType Type )
 		{
-			static std::array Offsets =
+			switch ( Type )
 			{
-				offsetof( RiotAccount, Normal ),
-				offsetof( RiotAccount, SoloQ ),
-				offsetof( RiotAccount, FlexQ ),
-				offsetof( RiotAccount, ARAM ),
-				offsetof( RiotAccount, Arena ),
-				offsetof( RiotAccount, Other ),
-				offsetof( RiotAccount, Other )
-			};
-
-			return reinterpret_cast<GameModeData*>( reinterpret_cast<uintptr_t>( this ) + Offsets[ std::to_underlying( Type ) ] );
+			case GameType::UNRANKED:
+				return &this->Normal;
+			case GameType::SOLOQ:
+				return &this->SoloQ;
+			case GameType::FLEX:
+				return &this->FlexQ;
+			case GameType::ARAM:
+				return &this->ARAM;
+			case GameType::ARENA:
+				return &this->Arena;
+			case GameType::CLASH:
+				return &this->Other;
+			case GameType::OTHER:
+				return &this->Other;
+			default:
+				return nullptr;
+			}
 		}
 
 		asio::awaitable<void> Populate();
@@ -513,11 +521,28 @@ namespace Components
 		void Connect( std::span<Database::Streamer> Targets );
 		void InitializeDataDragon();
 
+		struct view_hash
+		{
+			using is_transparent = void;
+
+			size_t operator()( const std::string_view sv ) const noexcept
+			{
+				return std::hash<std::string_view>{}( sv );
+			}
+
+			size_t operator()( const std::string& s ) const noexcept
+			{
+				return std::hash<std::string>{}( s );
+			}
+		};
+
+		std::unordered_map<std::string, std::unique_ptr<StreamerData>, view_hash, std::equal_to<>>& GetStreamers() { return Streamers; }
+
 		explicit Riot( std::string Key );
 
 	private:
-		std::unordered_map<uint32_t, std::unique_ptr<StreamerData>> Streamers = {};
-		std::string                                                 API;
-		ssl::context                                                SSLC;
+		std::unordered_map<std::string, std::unique_ptr<StreamerData>, view_hash, std::equal_to<>> Streamers = {};
+		std::string                                                                                API;
+		ssl::context                                                                               SSLC;
 	};
 }

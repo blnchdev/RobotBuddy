@@ -139,7 +139,7 @@ namespace Components
 			const uint64_t GameStart    = Info[ "gameStartTimestamp" ].get<uint64_t>();
 			const uint64_t GameDuration = Info[ "gameDuration" ].get<uint64_t>();
 			const auto     RoleString   = PlayerData[ "individualPosition" ].is_string() ? PlayerData[ "individualPosition" ].get<std::string>() : std::string( "NONE" );
-			uint32_t       QueueID      = Info[ "queueId" ];
+			uint32_t       QueueID      = Info[ "queueId" ].get<uint32_t>();
 
 			Number++;
 
@@ -176,7 +176,7 @@ namespace Components
 
 		const int16_t OldLP = RankToLP( *Rank.LastKnown );
 		const int16_t NewLP = RankToLP( NewRank );
-		const int16_t Delta = static_cast<int16_t>( NewLP ) - OldLP;
+		const int16_t Delta = static_cast<int16_t>( NewLP - OldLP );
 
 		if ( Delta != 0 )
 		{
@@ -187,7 +187,7 @@ namespace Components
 
 			this->Rank.PersistentData->PeakLP = std::max( this->Rank.PersistentData->PeakLP, NewLP );
 
-			asio::co_spawn( Globals::IOC, Globals::DB->PushRankData( Owner->Info.Owner->ID, Owner->Info.PUUID, Type, *this->Rank.PersistentData ), asio::detached );
+			Globals::DB->PushRankData( Owner->Info.Owner->ID, Owner->Info.PUUID, Type, *this->Rank.PersistentData );
 		}
 
 		Rank.SessionDeltaLP += static_cast<int16_t>( Delta );
@@ -274,17 +274,17 @@ namespace Components
 
 				const uint64_t ExtractedID = ExtractGameID( LastID.front() );
 
-				auto& Games = this->GetData( this->CurrentGame->Type )->Games;
+				const auto NewSummary = co_await GetGameSummary( this->Info.PUUID, this->Info.Region, LastID.front() );
 
-				if ( std::ranges::find( Games, ExtractedID, &GameSummary::GameID ) != Games.end() )
+				if ( !NewSummary.has_value() )
 				{
 					this->CurrentGame = nullptr;
 					co_return;
 				}
 
-				const auto NewSummary = co_await GetGameSummary( this->Info.PUUID, this->Info.Region, LastID.front() );
+				auto& Games = this->GetData( NewSummary->Type )->Games;
 
-				if ( !NewSummary.has_value() )
+				if ( std::ranges::find( Games, ExtractedID, &GameSummary::GameID ) != Games.end() )
 				{
 					this->CurrentGame = nullptr;
 					co_return;
@@ -295,11 +295,11 @@ namespace Components
 
 				if ( IsRanked )
 				{
-					const auto NewRank = co_await Globals::LeagueAPI->GetLeagueRank( *this, NewSummary->Type );
+					const auto NewRank = co_await Globals::LeagueAPI->GetLeagueRank( *this, Summary.Type );
 
 					if ( NewRank.has_value() )
 					{
-						auto&         ToEdit  = NewSummary->Type == GameType::SOLOQ ? this->SoloQ : this->FlexQ;
+						auto&         ToEdit  = Summary.Type == GameType::SOLOQ ? this->SoloQ : this->FlexQ;
 						const int32_t DeltaLP = ToEdit.Push( NewRank.value() );
 
 						if ( DeltaLP != 0 )
@@ -400,6 +400,8 @@ namespace Components
 			PopulateOrDefault( Account.get(), GameType::FLEX );
 		}
 
+		Account->Valid = true;
+
 		co_return Account;
 	}
 
@@ -467,8 +469,7 @@ namespace Components
 
 	StreamerData* Riot::GetData( const std::string_view ChannelName )
 	{
-		const uint32_t Hash     = Globals::FNV1a( ChannelName );
-		const auto     Iterator = this->Streamers.find( Hash );
+		const auto Iterator = this->Streamers.find( ChannelName );
 
 		if ( Iterator == this->Streamers.end() ) return nullptr;
 
@@ -507,8 +508,7 @@ namespace Components
 
 	asio::awaitable<std::optional<ActiveGame>> Riot::GetCurrentGame( std::string_view ChannelName )
 	{
-		const uint32_t Hash     = Globals::FNV1a( ChannelName );
-		const auto     Iterator = this->Streamers.find( Hash );
+		const auto Iterator = this->Streamers.find( ChannelName );
 
 		if ( Iterator == this->Streamers.end() ) co_return std::nullopt;
 
@@ -682,8 +682,7 @@ namespace Components
 
 	RiotAccount* Riot::GetActiveAccount( const std::string_view ChannelName )
 	{
-		const uint32_t Hash     = Globals::FNV1a( ChannelName );
-		const auto     Iterator = this->Streamers.find( Hash );
+		const auto Iterator = this->Streamers.find( ChannelName );
 
 		if ( Iterator == this->Streamers.end() ) return nullptr;
 
@@ -750,8 +749,7 @@ namespace Components
 
 	asio::awaitable<bool> Riot::AddAccount( const std::string_view ChannelName, const std::string_view PUUID )
 	{
-		const uint32_t Hash     = Globals::FNV1a( ChannelName );
-		const auto     Iterator = this->Streamers.find( Hash );
+		const auto Iterator = this->Streamers.find( ChannelName );
 
 		if ( Iterator == this->Streamers.end() ) co_return false;
 
@@ -761,14 +759,13 @@ namespace Components
 		if ( !Account ) co_return false;
 
 		Streamer->Accounts.push_back( std::move( Account ) );
-		( void )Globals::DB->AddAccount( Streamer->ID, PUUID );
+		Globals::DB->AddAccount( Streamer->ID, std::string( PUUID ) );
 		co_return true;
 	}
 
 	asio::awaitable<bool> Riot::RemoveAccount( const std::string_view ChannelName, const std::string_view SummonerName, const std::string_view TagLine )
 	{
-		const uint32_t Hash     = Globals::FNV1a( ChannelName );
-		const auto     Iterator = this->Streamers.find( Hash );
+		const auto Iterator = this->Streamers.find( ChannelName );
 
 		if ( Iterator == this->Streamers.end() ) co_return false;
 
@@ -797,8 +794,7 @@ namespace Components
 
 	bool Riot::AddStreamer( const std::string_view ChannelName )
 	{
-		const uint32_t Hash     = Globals::FNV1a( ChannelName );
-		const auto     Iterator = this->Streamers.find( Hash );
+		const auto Iterator = this->Streamers.find( ChannelName );
 
 		if ( Iterator != this->Streamers.end() ) return false;
 
@@ -806,10 +802,10 @@ namespace Components
 
 		if ( !ID.has_value() ) return false;
 
-		auto Name               = std::string( ChannelName );
-		auto Data               = std::make_unique<StreamerData>( Name );
-		Data->ID                = ID.value();
-		this->Streamers[ Hash ] = std::move( Data );
+		auto Name = std::string( ChannelName );
+		auto Data = std::make_unique<StreamerData>( Name );
+		Data->ID  = ID.value();
+		this->Streamers.insert_or_assign( Name, std::move( Data ) );
 
 		return true;
 	}
@@ -821,13 +817,12 @@ namespace Components
 
 		for ( const auto& Target : Targets )
 		{
-			auto           Name = std::string( Target.ChannelName );
-			const uint32_t Hash = Globals::FNV1a( Name );
-			auto           Data = std::make_unique<StreamerData>( Name );
-			Data->ID            = Target.StreamerID;
-			auto* Pointer       = Data.get();
+			auto Name     = std::string( Target.ChannelName );
+			auto Data     = std::make_unique<StreamerData>( Name );
+			Data->ID      = Target.StreamerID;
+			auto* Pointer = Data.get();
 
-			this->Streamers[ Hash ] = std::move( Data );
+			this->Streamers.insert_or_assign( std::move( Name ), std::move( Data ) );
 
 			Pointer->Accounts.reserve( Target.Accounts.size() );
 
@@ -842,7 +837,6 @@ namespace Components
 						const auto Account = co_await RiotAccount::Create( Pointer, PUUID );
 						if ( Account ) Pointer->Accounts.push_back( Account );
 
-						PrintDebug( "-- {}#{}", Account->Info.SummonerName, Account->Info.TagLine );
 						if ( --Pending == 0 ) Ready.set_value();
 					}
 					catch ( std::exception& e )
