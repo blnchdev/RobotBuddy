@@ -2,6 +2,7 @@
 
 #include "Components/Riot/Riot.h"
 #include "Components/TUI/TUI.h"
+#include "Globals/Globals.h"
 
 #pragma comment(lib, "Secur32.lib")
 #pragma comment(lib, "Wldap32.lib")
@@ -10,7 +11,8 @@ namespace Components
 {
 	Database::Database( const std::string& ConnectionString ) : Connection{ ConnectionString }
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		Work.exec( R"(
             CREATE TABLE IF NOT EXISTS Streamers (
@@ -62,7 +64,8 @@ namespace Components
 
 	std::optional<int32_t> Database::AddStreamer( const std::string_view ChannelName ) const
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		const auto Result = Work.exec( "INSERT INTO Streamers(ChannelName) VALUES ($1) ON CONFLICT DO NOTHING RETURNING StreamerID", pqxx::params{ ChannelName } );
 
@@ -74,7 +77,8 @@ namespace Components
 
 	bool Database::RemoveStreamer( const int32_t StreamerID ) const
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		const auto Result = Work.exec( "DELETE FROM Streamers WHERE StreamerID = $1", pqxx::params{ StreamerID } );
 
@@ -84,7 +88,8 @@ namespace Components
 
 	std::vector<Database::Streamer> Database::GetStreamers() const
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		const auto Result = Work.exec( "SELECT StreamerID, ChannelName FROM Streamers" );
 
@@ -106,22 +111,21 @@ namespace Components
 		return Out;
 	}
 
-	bool Database::AddAccount( const int32_t StreamerID, const std::string_view AccountID ) const
+	bool Database::AddAccount( const int32_t StreamerID, const std::string& AccountID ) const
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
-		const auto Result = Work.exec(
-		                              "INSERT INTO Accounts(StreamerID, AccountID) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-		                              pqxx::params{ StreamerID, AccountID }
-		                             );
+		const auto Result = Work.exec( "INSERT INTO Accounts(StreamerID, AccountID) VALUES ($1, $2) ON CONFLICT DO NOTHING", pqxx::params{ StreamerID, AccountID } );
 
 		Work.commit();
 		return Result.affected_rows() > 0;
 	}
 
-	bool Database::RemoveAccount( const int32_t StreamerID, const std::string_view AccountID ) const
+	bool Database::RemoveAccount( const int32_t StreamerID, const std::string& AccountID ) const
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		const auto Result = Work.exec( "DELETE FROM Accounts WHERE StreamerID = $1 AND AccountID = $2", pqxx::params{ StreamerID, AccountID } );
 
@@ -131,7 +135,8 @@ namespace Components
 
 	std::optional<PersistentRankData> Database::GetRankData( int32_t StreamerID, std::string_view AccountID, const GameType Type ) const
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		if ( Type != GameType::SOLOQ && Type != GameType::FLEX ) return std::nullopt;
 
@@ -156,13 +161,14 @@ namespace Components
 		};
 	}
 
-	asio::awaitable<void> Database::PushRankData( int32_t StreamerID, std::string_view AccountID, const GameType Type, PersistentRankData& Data ) const
+	void Database::PushRankData( int32_t StreamerID, std::string_view AccountID, const GameType Type, PersistentRankData& Data ) const
 	{
-		if ( Type != GameType::SOLOQ && Type != GameType::FLEX ) co_return;
+		if ( Type != GameType::SOLOQ && Type != GameType::FLEX ) return;
 
 		const int32_t RankID = Type == GameType::SOLOQ ? 1 : 2;
 
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		const auto Result = Work.exec(
 		                              "INSERT INTO RankData (StreamerID, AccountID, RankID, AverageGain, AverageLoss, WinCount, LossCount, PeakLP)"
@@ -181,7 +187,8 @@ namespace Components
 
 	std::optional<int32_t> Database::AddSetting( const std::string_view KeyName, const std::string_view DefaultValue ) const
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		const auto Result = Work.exec( "INSERT INTO Settings(KeyName, DefaultValue) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING SettingID", pqxx::params{ KeyName, DefaultValue } );
 
@@ -193,7 +200,8 @@ namespace Components
 
 	bool Database::RemoveSetting( const int32_t SettingID ) const
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		const auto Result = Work.exec( "DELETE FROM Settings WHERE SettingID = $1", pqxx::params{ SettingID } );
 
@@ -204,12 +212,13 @@ namespace Components
 	template <typename T>
 	T Database::GetSetting( int32_t StreamerID, SettingIDs SettingID, T DefaultValue )
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		const auto Result = Work.exec( R"(
 						SELECT Value
 						FROM StreamerSettings
-						WHERE StreamerID = $1 AND SettingID = $2)", pqxx::params{ StreamerID, static_cast<uint8_t>( SettingID ) } );
+						WHERE StreamerID = $1 AND SettingID = $2)", pqxx::params{ StreamerID, static_cast<uint16_t>( SettingID ) } );
 
 		if ( Result.empty() ) return DefaultValue;
 
@@ -219,21 +228,39 @@ namespace Components
 	template <>
 	bool Database::GetSetting( int32_t StreamerID, SettingIDs SettingID, const bool DefaultValue )
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		const auto Result = Work.exec( R"(
 						SELECT Value
 						FROM StreamerSettings
-						WHERE StreamerID = $1 AND SettingID = $2)", pqxx::params{ StreamerID, static_cast<uint8_t>( SettingID ) } );
+						WHERE StreamerID = $1 AND SettingID = $2)", pqxx::params{ StreamerID, static_cast<uint16_t>( SettingID ) } );
 
 		if ( Result.empty() ) return DefaultValue;
 
 		return Result[ 0 ][ 0 ].as<std::string>() == "true";
 	}
 
+	template <>
+	std::string Database::GetSetting( int32_t StreamerID, SettingIDs SettingID, const std::string DefaultValue )
+	{
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
+
+		const auto Result = Work.exec( R"(
+						SELECT Value
+						FROM StreamerSettings
+						WHERE StreamerID = $1 AND SettingID = $2)", pqxx::params{ StreamerID, static_cast<uint16_t>( SettingID ) } );
+
+		if ( Result.empty() ) return DefaultValue;
+
+		return Result[ 0 ][ 0 ].as<std::string>();
+	}
+
 	bool Database::SetStreamerSetting( const int32_t StreamerID, const int32_t SettingID, const std::string_view Value ) const
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		const auto Result = Work.exec( R"(
                 INSERT INTO StreamerSettings(StreamerID, SettingID, Value)
@@ -247,7 +274,8 @@ namespace Components
 
 	bool Database::RemoveStreamerSetting( const int32_t StreamerID, const int32_t SettingID ) const
 	{
-		pqxx::work Work{ Connection };
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
 
 		const auto Result = Work.exec(
 		                              "DELETE FROM StreamerSettings WHERE StreamerID = $1 AND SettingID = $2",
@@ -273,7 +301,7 @@ namespace Components
 
 			for ( const auto& Row : Result )
 			{
-				int32_t SettingID = Row[ "StreamerID" ].as<int32_t>();
+				int32_t SettingID = Row[ "SettingID" ].as<int32_t>();
 
 				switch ( static_cast<SettingIDs>( SettingID ) )
 				{

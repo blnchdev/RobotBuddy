@@ -4,8 +4,11 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <mutex>
 #include <vector>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/strand.hpp>
 
 namespace Components
 {
@@ -47,11 +50,11 @@ namespace Components
 
 		std::vector<Streamer> GetStreamers() const;
 
-		bool AddAccount( int32_t StreamerID, std::string_view AccountID ) const;
-		bool RemoveAccount( int32_t StreamerID, std::string_view AccountID ) const;
+		bool AddAccount( int32_t StreamerID, const std::string& AccountID ) const;
+		bool RemoveAccount( int32_t StreamerID, const std::string& AccountID ) const;
 
 		std::optional<PersistentRankData> GetRankData( int32_t StreamerID, std::string_view AccountID, GameType Type ) const;
-		boost::asio::awaitable<void>      PushRankData( int32_t StreamerID, std::string_view AccountID, GameType Type, PersistentRankData& Data ) const;
+		void                              PushRankData( int32_t StreamerID, std::string_view AccountID, GameType Type, PersistentRankData& Data ) const;
 
 		std::optional<int32_t> AddSetting( std::string_view KeyName, std::string_view DefaultValue ) const;
 		bool                   RemoveSetting( int32_t SettingID ) const;
@@ -61,6 +64,8 @@ namespace Components
 		T GetSetting( int32_t StreamerID, SettingIDs SettingID, T DefaultValue );
 		template <>
 		bool GetSetting( int32_t StreamerID, SettingIDs SettingID, bool DefaultValue );
+		template <>
+		std::string GetSetting( int32_t StreamerID, SettingIDs SettingID, std::string DefaultValue );
 
 		bool SetStreamerSetting( int32_t StreamerID, int32_t SettingID, std::string_view Value ) const;
 		bool RemoveStreamerSetting( int32_t StreamerID, int32_t SettingID ) const;
@@ -71,5 +76,6 @@ namespace Components
 		Streamer PopulateStreamer( pqxx::work& Txn, Streamer S ) const;
 
 		mutable pqxx::connection Connection;
+		mutable std::mutex       Mutex;
 	};
 }
