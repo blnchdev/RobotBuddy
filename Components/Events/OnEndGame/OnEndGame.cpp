@@ -38,9 +38,9 @@ namespace Components::Event
 			GameResult += std::format( " ({:+} LP)", Summary.DeltaLP );
 		}
 
-		std::string Ratio = Summary.KDA.IsPerfect() ? "Perfect" : std::format( "{:.2f}", Summary.KDA.Ratio );
+		std::string Ratio = Summary.Streamer.KDA.IsPerfect() ? "Perfect" : std::format( "{:.2f}", Summary.Streamer.KDA.Ratio );
 
-		const std::string Response = std::format( "{} {} game result: {}. Finished {}/{}/{} ({}) on {}", ChannelID, ToDisplayName( Summary.Type ), GameResult, Summary.KDA.Kills, Summary.KDA.Deaths, Summary.KDA.Assists, Ratio, Summary.Champion );
+		const std::string Response = std::format( "{} {} game result: {}. Finished {}/{}/{} ({}) on {}", ChannelID, ToDisplayName( Summary.Type ), GameResult, Summary.Streamer.KDA.Kills, Summary.Streamer.KDA.Deaths, Summary.Streamer.KDA.Assists, Ratio, Summary.Streamer.Champion );
 
 		PrintOk( "OnGameEnd::Trigger({}): {}", ChannelID, Response );
 		Globals::TwitchAPI->SendChat( ChannelID, Response );

@@ -1,6 +1,7 @@
 #include "Riot.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include "Components/Events/OnEndGame/OnEndGame.h"
@@ -39,10 +40,7 @@ namespace Components
 		// Takes a unix time in milliseconds
 		int64_t MinutesBetweenTimestamps( const uint64_t A, const uint64_t B )
 		{
-			const auto _A = std::chrono::system_clock::time_point{ std::chrono::milliseconds( A ) };
-			const auto _B = std::chrono::system_clock::time_point{ std::chrono::milliseconds( B ) };
-
-			return abs( duration_cast<std::chrono::minutes>( _A - _B ).count() );
+			return std::abs( std::chrono::duration_cast<std::chrono::minutes>( std::chrono::milliseconds( A ) - std::chrono::milliseconds( B ) ).count() );
 		}
 
 		int64_t MinutesSinceTimestamp( const std::chrono::system_clock::time_point& Now, const uint64_t UnixTimeMS )
@@ -141,6 +139,37 @@ namespace Components
 			const auto     RoleString   = PlayerData[ "individualPosition" ].is_string() ? PlayerData[ "individualPosition" ].get<std::string>() : std::string( "NONE" );
 			uint32_t       QueueID      = Info[ "queueId" ].get<uint32_t>();
 
+			std::optional<struct PlayerData> Opponent = std::nullopt;
+
+			if ( RoleString != "NONE" )
+			{
+				const auto MatchOpponent = [&RoleString, &PUUID] ( const json& Data )
+				{
+					return Data[ "individualPosition" ] == RoleString && Data[ "puuid" ] != PUUID;
+				};
+
+				const auto OpponentIterator = std::ranges::find_if( Participants, MatchOpponent );
+
+				if ( OpponentIterator != Participants.end() )
+				{
+					auto& OpponentData = *OpponentIterator;
+
+					int32_t K, D, A;
+					OpponentData[ "kills" ].get_to( K );
+					OpponentData[ "deaths" ].get_to( D );
+					OpponentData[ "assists" ].get_to( A );
+
+					Opponent =
+					{
+						.Champion = OpponentData[ "championName" ],
+						.Role = DisplayToRole( RoleString ),
+						.KDA = KDA( K, D, A ),
+						.CreepScore = OpponentData[ "totalMinionsKilled" ].get<int32_t>() + OpponentData[ "neutralMinionsKilled" ].get<int32_t>(),
+						.VisionScore = OpponentData[ "visionScore" ].get<double>()
+					};
+				}
+			}
+
 			Number++;
 
 			int32_t K, D, A;
@@ -153,15 +182,19 @@ namespace Components
 			co_return GameSummary
 			{
 				.GameID = ExtractGameID( GameID ),
-				.Champion = PlayerData[ "championName" ],
-				.Role = DisplayToRole( RoleString ),
+				.Streamer =
+				{
+					.Champion = PlayerData[ "championName" ],
+					.Role = DisplayToRole( RoleString ),
+					.KDA = KDA( K, D, A ),
+					.CreepScore = PlayerData[ "totalMinionsKilled" ].get<int32_t>() + PlayerData[ "neutralMinionsKilled" ].get<int32_t>(),
+					.VisionScore = PlayerData[ "visionScore" ].get<double>()
+				},
+				.Opponent = std::move( Opponent ),
 				.Type = QueueIDToType( QueueID ),
 				.Win = PlayerData[ "win" ].get<bool>(),
-				.KDA = KDA( K, D, A ),
 				.Duration = GameDuration,
 				.GameEnd = GameStart + GameDuration * 1000ULL,
-				.CreepScore = PlayerData[ "totalMinionsKilled" ].get<int32_t>() + PlayerData[ "neutralMinionsKilled" ].get<int32_t>(),
-				.VisionScore = PlayerData[ "visionScore" ].get<double>()
 			};
 		}
 	}
@@ -226,7 +259,8 @@ namespace Components
 			}
 			else
 			{
-				if ( !IsInCurrentDay( Now, Summary->GameEnd ) ) break;
+				const auto DeltaMinutes = MinutesBetweenTimestamps( Summary->GameEnd, std::chrono::duration_cast<std::chrono::milliseconds>( Now.time_since_epoch() ).count() );
+				if ( DeltaMinutes > 120 ) break;
 			}
 
 			PreviousGameEnd = Summary->GameEnd;
@@ -250,7 +284,8 @@ namespace Components
 			co_return;
 		}
 
-		const auto SpectatorData = co_await Globals::LeagueAPI->GetCurrentGame( this );
+		uint32_t   ReturnStatus  = 0;
+		const auto SpectatorData = co_await Globals::LeagueAPI->GetCurrentGame( this, &ReturnStatus );
 
 		if ( SpectatorData.has_value() )
 		{
@@ -259,7 +294,7 @@ namespace Components
 				this->CurrentGame = std::make_unique<ActiveGame>( *SpectatorData );
 			}
 		}
-		else
+		else if ( ReturnStatus != 202 /* Game is still the same */ && ReturnStatus != 429 /* Rate-limited */ )
 		{
 			// No longer in-game, aka game ended!
 			if ( this->CurrentGame )
@@ -291,6 +326,16 @@ namespace Components
 				// 
 				if ( this->CurrentGame->Type != NewSummary->Type )
 				{
+					this->CurrentGame = nullptr;
+					co_return;
+				}
+
+				//
+				// This should not happen, but I'm adding this as a debug check, if it does we intercept the data.
+				//
+				if ( const auto Now = std::chrono::system_clock::now(); MinutesBetweenTimestamps( NewSummary->GameEnd, std::chrono::duration_cast<std::chrono::milliseconds>( Now.time_since_epoch() ).count() ) > 60 )
+				{
+					PrintWarn( "Time since GameEnd: {} minutes", MinutesBetweenTimestamps( NewSummary->GameEnd, std::chrono::duration_cast<std::chrono::milliseconds>( Now.time_since_epoch() ).count() ) );
 					this->CurrentGame = nullptr;
 					co_return;
 				}
@@ -519,101 +564,7 @@ namespace Components
 		co_return RankEntry( DisplayToRank( Rank ), RomanToByte( Division ), LP );
 	}
 
-	asio::awaitable<std::optional<ActiveGame>> Riot::GetCurrentGame( std::string_view ChannelName )
-	{
-		const auto Iterator = this->Streamers.find( ChannelName );
-
-		if ( Iterator == this->Streamers.end() ) co_return std::nullopt;
-
-		auto* Data = Iterator->second.get();
-
-		std::shared_ptr<RiotAccount> ActiveAccount = nullptr;
-		std::string                  CachedBody;
-
-		for ( const auto& Account : Data->Accounts )
-		{
-			url U;
-			U.set_path( "/lol/spectator/v5/active-games/by-summoner" );
-			U.segments().push_back( Account->Info.PUUID );
-
-			auto [ Status, Body ] = co_await GET( ServerHost( Account->Info.Region ), U.encoded_path() );
-
-			if ( Status == 200 )
-			{
-				ActiveAccount = Account;
-				CachedBody    = Body;
-				break;
-			}
-		}
-
-		if ( !ActiveAccount || CachedBody.empty() ) co_return std::nullopt;
-
-		const auto J = json::parse( CachedBody );
-
-		int32_t ChampionID = 0;
-		int32_t QueueID    = J[ "gameQueueConfigId" ];
-
-		std::vector<std::string> PUUIDs;
-
-		for ( const auto& Participant : J[ "participants" ] )
-		{
-			if ( !Participant.contains( "puuid" ) || Participant[ "puuid" ].is_null() ) continue;
-
-			const auto PUUID = Participant[ "puuid" ].get<std::string>();
-			if ( PUUID == ActiveAccount->Info.PUUID ) ChampionID = Participant[ "championId" ];
-
-			PUUIDs.push_back( PUUID );
-		}
-
-		std::vector<asio::awaitable<std::optional<RankEntry>>> Tasks;
-		Tasks.reserve( PUUIDs.size() );
-
-		auto FetchRank = [&] ( const std::string& PUUID, const std::string_view Queue )-> asio::awaitable<std::optional<RankEntry>>
-		{
-			url RankURL;
-			RankURL.set_path( "/lol/league/v4/entries/by-puuid" );
-			RankURL.segments().push_back( PUUID );
-
-			auto [ _Status, _RankBody ] = co_await GET( ServerHost( ActiveAccount->Info.Region ), RankURL.encoded_path() );
-			if ( _Status != 200 ) co_return std::nullopt;
-
-			const auto Entries      = json::parse( _RankBody );
-			const auto MatchingRank = std::ranges::find_if( Entries, [&] ( const json& E )
-			{
-				return E[ "queueType" ].get<std::string>() == Queue;
-			} );
-
-			if ( MatchingRank == Entries.end() ) co_return std::nullopt;
-
-			const std::string Rank     = ( *MatchingRank )[ "tier" ];
-			const std::string Division = ( *MatchingRank )[ "rank" ];
-			const int16_t     LP       = ( *MatchingRank )[ "leaguePoints" ];
-
-			co_return RankEntry( DisplayToRank( Rank ), RomanToByte( Division ), LP );
-		};
-
-		const std::string Queue = QueueID == 440 ? "RANKED_FLEX_SR" : "RANKED_SOLO_5x5";
-
-		for ( const auto& PUUID : PUUIDs )
-		{
-			Tasks.push_back( FetchRank( PUUID, Queue ) );
-		}
-
-		std::vector<RankEntry> Ranks;
-
-		for ( auto& Task : Tasks )
-		{
-			auto Result = co_await std::move( Task );
-			if ( Result.has_value() ) Ranks.push_back( Result.value() );
-		}
-
-		RankEntry AverageElo = LPToRank( static_cast<int16_t>( GetAverageLP( Ranks ) ) );
-		GameType  Type       = QueueIDToType( QueueID );
-
-		co_return ActiveGame( ActiveAccount.get(), ChampionMap[ ChampionID ], AverageElo, QueueID, Type );
-	}
-
-	asio::awaitable<std::optional<ActiveGame>> Riot::GetCurrentGame( RiotAccount* Account )
+	asio::awaitable<std::optional<ActiveGame>> Riot::GetCurrentGame( RiotAccount* Account, uint32_t* StatusOut = nullptr )
 	{
 		url U;
 		U.set_path( "/lol/spectator/v5/active-games/by-summoner" );
@@ -623,12 +574,21 @@ namespace Components
 
 		if ( Status != 200 )
 		{
+			PrintDebug( "Status {} GetCurrentGame", Status );
 			co_return std::nullopt;
 		}
 
 		if ( Body.empty() ) co_return std::nullopt;
 
 		const auto J = json::parse( Body );
+
+		const auto GameID = J[ "gameId" ].get<uint64_t>();
+
+		if ( Account->CurrentGame && Account->CurrentGame->GameID == GameID )
+		{
+			*StatusOut = 202;
+			co_return std::nullopt;
+		}
 
 		int32_t ChampionID = 0;
 		int32_t QueueID    = J[ "gameQueueConfigId" ];
@@ -690,7 +650,9 @@ namespace Components
 		RankEntry AverageElo = LPToRank( GetAverageLP( Ranks ) );
 		GameType  Type       = QueueIDToType( QueueID );
 
-		co_return ActiveGame( Account, ChampionMap[ ChampionID ], AverageElo, QueueID, Type );
+		*StatusOut = Status;
+
+		co_return ActiveGame( Account, GameID, ChampionMap[ ChampionID ], AverageElo, QueueID, Type );
 	}
 
 	RiotAccount* Riot::GetActiveAccount( const std::string_view ChannelName )
@@ -729,6 +691,8 @@ namespace Components
 
 	asio::awaitable<Riot::Response> Riot::GET( std::string_view Host, std::string_view Target, bool NeedsAPI )
 	{
+		if ( NeedsAPI ) co_await RateLimiter.Acquire();
+
 		auto                           Executor = co_await asio::this_coro::executor;
 		ssl::stream<beast::tcp_stream> Stream{ Executor, SSLC };
 
@@ -751,6 +715,7 @@ namespace Components
 		beast::flat_buffer                Buffer;
 		http::response<http::string_body> Result;
 		co_await http::async_read( Stream, Buffer, Result, asio::use_awaitable );
+		if ( NeedsAPI ) RateLimiter.UpdateFromHeaders( Result );
 
 		co_return Response{ .Status = Result.result_int(), .Body = std::move( Result.body() ) };
 	}
@@ -873,7 +838,7 @@ namespace Components
 					if ( Data ) co_await Data->Refresh();
 				}
 
-				Timer.expires_after( std::chrono::seconds( 15 ) );
+				Timer.expires_after( std::chrono::seconds( 30 ) );
 				co_await Timer.async_wait( asio::use_awaitable );
 			}
 		}, asio::detached );

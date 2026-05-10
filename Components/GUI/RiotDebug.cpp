@@ -183,10 +183,10 @@ namespace Debug
 							}
 
 							ImGui::TableSetColumnIndex( 1 );
-							ImGui::TextUnformatted( G.Champion.c_str() );
+							ImGui::TextUnformatted( G.Streamer.Champion.c_str() );
 
 							ImGui::TableSetColumnIndex( 2 );
-							ImGui::TextDisabled( "%s", RoleStr( G.Role ) );
+							ImGui::TextDisabled( "%s", RoleStr( G.Streamer.Role ) );
 
 							ImGui::TableSetColumnIndex( 3 );
 
@@ -204,8 +204,8 @@ namespace Debug
 							ImGui::PopStyleColor();
 
 							ImGui::TableSetColumnIndex( 4 );
-							if ( G.KDA.IsPerfect() ) ImGui::Text( "%d/%d/%d (Perfect)", G.KDA.Kills, G.KDA.Deaths, G.KDA.Assists );
-							else ImGui::Text( "%d/%d/%d (%.2f)", G.KDA.Kills, G.KDA.Deaths, G.KDA.Assists, G.KDA.Ratio );
+							if ( G.Streamer.KDA.IsPerfect() ) ImGui::Text( "%d/%d/%d (Perfect)", G.Streamer.KDA.Kills, G.Streamer.KDA.Deaths, G.Streamer.KDA.Assists );
+							else ImGui::Text( "%d/%d/%d (%.2f)", G.Streamer.KDA.Kills, G.Streamer.KDA.Deaths, G.Streamer.KDA.Assists, G.Streamer.KDA.Ratio );
 
 							ImGui::TableSetColumnIndex( 5 );
 							ImGui::TextUnformatted( FormatDuration( G.Duration ).c_str() );
@@ -256,15 +256,15 @@ namespace Debug
 				};
 
 				Row( "Game ID", std::format( "{}", G.GameID ) );
-				Row( "Champion", G.Champion );
-				Row( "Role", RoleStr( G.Role ) );
+				Row( "Champion", G.Streamer.Champion );
+				Row( "Role", RoleStr( G.Streamer.Role ) );
 				Row( "Queue", GameTypeStr( G.Type ) );
 				Row( "Result", G.Win ? "Victory" : "Defeat" );
 				Row( "Duration", FormatDuration( G.Duration ) );
 				Row( "Ended at", FormatEpoch( G.GameEnd ) );
-				Row( "KDA", G.KDA.IsPerfect() ? std::format( "{}/{}/{} - Perfect", G.KDA.Kills, G.KDA.Deaths, G.KDA.Assists ) : std::format( "{}/{}/{} - {:.2f}", G.KDA.Kills, G.KDA.Deaths, G.KDA.Assists, G.KDA.Ratio ) );
-				Row( "CS", std::format( "{}", G.CreepScore ) );
-				Row( "Vision", std::format( "{:.1f}", G.VisionScore ) );
+				Row( "KDA", G.Streamer.KDA.IsPerfect() ? std::format( "{}/{}/{} - Perfect", G.Streamer.KDA.Kills, G.Streamer.KDA.Deaths, G.Streamer.KDA.Assists ) : std::format( "{}/{}/{} - {:.2f}", G.Streamer.KDA.Kills, G.Streamer.KDA.Deaths, G.Streamer.KDA.Assists, G.Streamer.KDA.Ratio ) );
+				Row( "CS", std::format( "{}", G.Streamer.CreepScore ) );
+				Row( "Vision", std::format( "{:.1f}", G.Streamer.VisionScore ) );
 
 				if ( G.WasRanked() ) Row( "LP delta", G.DeltaLP >= 0 ? std::format( "+{} LP", G.DeltaLP ) : std::format( "{} LP", G.DeltaLP ) );
 

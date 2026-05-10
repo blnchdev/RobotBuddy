@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include "Components/Database/Database.h"
+#include "Components/RateLimiter/RateLimiter.h"
 #include "Components/TUI/TUI.h"
 
 namespace Components
@@ -322,21 +323,29 @@ namespace Components
 		int16_t PeakLP;
 	};
 
-	struct GameSummary
+	struct PlayerData
 	{
-		uint64_t    GameID;
 		std::string Champion;
 		RoleEnum    Role = NONE;
-		GameType    Type;
-
-		bool Win;
-		KDA  KDA;
-
-		uint64_t Duration;
-		uint64_t GameEnd;
+		KDA         KDA;
 
 		int32_t CreepScore;
 		double  VisionScore;
+	};
+
+	struct GameSummary
+	{
+		uint64_t GameID;
+
+		PlayerData                Streamer;
+		std::optional<PlayerData> Opponent = std::nullopt;
+
+		GameType Type;
+
+		bool Win;
+
+		uint64_t Duration;
+		uint64_t GameEnd;
 
 		int32_t DeltaLP = 0;
 
@@ -381,6 +390,7 @@ namespace Components
 	struct ActiveGame
 	{
 		RiotAccount* Player;
+		uint64_t     GameID;
 		std::string  Champion;
 		RankEntry    AverageElo;
 		uint32_t     QueueID;
@@ -459,32 +469,6 @@ namespace Components
 		explicit StreamerData( std::string Channel );
 	};
 
-	class RateLimiter
-	{
-	public:
-		RateLimiter( asio::io_context& IOC, const size_t Capacity, const std::chrono::steady_clock::duration RefillInterval ) : Timer( IOC ), Capacity( Capacity ), Tokens( Capacity ), RefillInterval( RefillInterval )
-		{
-		}
-
-		asio::awaitable<void> Acquire()
-		{
-			while ( Tokens == 0 )
-			{
-				Timer.expires_after( RefillInterval );
-				co_await Timer.async_wait( asio::use_awaitable );
-				Tokens = Capacity;
-			}
-
-			--Tokens;
-		}
-
-	private:
-		asio::steady_timer                  Timer;
-		size_t                              Capacity;
-		size_t                              Tokens;
-		std::chrono::steady_clock::duration RefillInterval;
-	};
-
 	class Riot
 	{
 	public:
@@ -500,8 +484,7 @@ namespace Components
 
 		// Visible Player Data
 		asio::awaitable<std::optional<RankEntry>>  GetLeagueRank( const RiotAccount& Account, GameType Type = GameType::SOLOQ );
-		asio::awaitable<std::optional<ActiveGame>> GetCurrentGame( std::string_view ChannelName );
-		asio::awaitable<std::optional<ActiveGame>> GetCurrentGame( RiotAccount* Account );
+		asio::awaitable<std::optional<ActiveGame>> GetCurrentGame( RiotAccount* Account, uint32_t* StatusOut );
 		RiotAccount*                               GetActiveAccount( std::string_view ChannelName );
 
 		// Raw requests
@@ -544,5 +527,6 @@ namespace Components
 		std::unordered_map<std::string, std::unique_ptr<StreamerData>, view_hash, std::equal_to<>> Streamers = {};
 		std::string                                                                                API;
 		ssl::context                                                                               SSLC;
+		RateLimiter                                                                                RateLimiter;
 	};
 }
