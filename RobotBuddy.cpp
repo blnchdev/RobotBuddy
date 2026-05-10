@@ -7,6 +7,7 @@
 #include "Components/Commands/Commands.h"
 #include "Components/Database/Database.h"
 #include "Components/Environment/Environment.h"
+#include "Components/GUI/GUI.h"
 #include "Components/Riot/Riot.h"
 #include "Components/TokenManager/TokenManager.h"
 #include "Components/TUI/TUI.h"
@@ -23,12 +24,18 @@ namespace
 	}
 }
 
+#define ROBOTBUDDY_DEBUG_GUI 1
+
 int main()
 {
 	using namespace Components;
 	SetConsoleOutputCP( CP_UTF8 );
 
 	PrintSection( "RobotBuddy Pre-Alpha!" );
+
+#ifdef ROBOTBUDDY_DEBUG_GUI
+	GUI::Initialize();
+#endif
 
 	Environment::Load();
 	PrintDebug( "Loaded Environment" );
@@ -54,7 +61,6 @@ int main()
 	Globals::TwitchAPI->Connect();
 	Globals::TwitchAPI->Login( ToJoin );
 	PrintDebug( "Loaded TwitchAPI" );
-
 
 	for ( const auto& Streamer : Streamers )
 	{
@@ -88,6 +94,11 @@ int main()
 	{
 		Globals::Work.reset();
 	} );
+
+
+#ifdef ROBOTBUDDY_DEBUG_GUI
+	GUI::Execute();
+#endif
 
 	for ( auto& T : Pool ) T.join();
 }
