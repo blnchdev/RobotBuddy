@@ -282,6 +282,19 @@ namespace Components
 					co_return;
 				}
 
+				//
+				// There are some game modes that have a valid spectator data, but no valid summary, e.g. Clash does not show up in history on websites like OP.GG
+				// If the summary we got has a different GameType, we skip it, this is just the easiest way to find a mismatch between history and new summary
+				// This has a pretty big caveat though; games like Arena where you can leave early (or TFT when we eventually add support for this), have a delay; these should
+				// be handled somewhere else, ideally a fetching that doesn't rely on ActiveGame.
+				// Therefore, TODO: Handle games with delayed summaries (e.g. Arena, TFT)
+				// 
+				if ( this->CurrentGame->Type != NewSummary->Type )
+				{
+					this->CurrentGame = nullptr;
+					co_return;
+				}
+
 				auto& Games = this->GetData( NewSummary->Type )->Games;
 
 				if ( std::ranges::find( Games, ExtractedID, &GameSummary::GameID ) != Games.end() )
