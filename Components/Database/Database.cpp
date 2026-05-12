@@ -86,6 +86,18 @@ namespace Components
 		return Result.affected_rows() > 0;
 	}
 
+	int32_t Database::GetStreamerID( std::string_view ChannelName ) const
+	{
+		std::lock_guard Lock( Mutex );
+		pqxx::work      Work{ Connection };
+
+		const auto Result = Work.exec( "SELECT StreamerID FROM Streamers WHERE ChannelName = $1", pqxx::params( ChannelName ) );
+
+		if ( Result.empty() ) return -1;
+
+		return Result[ 0 ][ "StreamerID" ].as<int32_t>();
+	}
+
 	std::vector<Database::Streamer> Database::GetStreamers() const
 	{
 		std::lock_guard Lock( Mutex );

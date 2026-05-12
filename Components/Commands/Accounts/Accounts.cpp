@@ -74,7 +74,21 @@ namespace Components::Operation
 				co_return "Could not find that summoner.";
 			}
 
-			const bool Status = co_await Globals::LeagueAPI->AddAccount( Data->ChannelName, PUUID.value() );
+			int32_t StreamerID = Globals::DB->GetStreamerID( Data->ChannelName );
+
+			if ( StreamerID == -1 )
+			{
+				co_return "Please report this error to https://blanche.dev/issue";
+			}
+
+			bool Status = Globals::DB->AddAccount( StreamerID, PUUID.value() );
+
+			if ( !Status )
+			{
+				co_return "Account could not be added, please report this issue to https://blanche.dev/issue";
+			}
+
+			Status = co_await Globals::LeagueAPI->AddAccount( Data->ChannelName, PUUID.value() );
 
 			if ( Status )
 			{
@@ -160,7 +174,5 @@ namespace Components::Operation
 		{
 			Globals::TwitchAPI->ReplyTo( Data->Context, Response );
 		}
-
-		co_return;
 	}
 }

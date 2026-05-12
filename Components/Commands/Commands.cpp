@@ -90,6 +90,13 @@ namespace Components
 		asio::co_spawn( Globals::IOC, [Command = std::move( SentCommand ), Method = Iterator->second]() mutable -> asio::awaitable<void>
 		{
 			co_await Method( &Command );
-		}, asio::detached );
+		}, [] ( const std::exception_ptr& Ptr )
+		{
+			if ( Ptr )
+			{
+				try { std::rethrow_exception( Ptr ); }
+				catch ( const std::exception& Ex ) { PrintError( "coroutine threw: {}", Ex.what() ); }
+			}
+		} );
 	}
 }

@@ -48,6 +48,7 @@ namespace Components
 		std::optional<int32_t> AddStreamer( std::string_view ChannelName ) const;
 		bool                   RemoveStreamer( int32_t StreamerID ) const;
 
+		int32_t               GetStreamerID( std::string_view ChannelName ) const;
 		std::vector<Streamer> GetStreamers() const;
 
 		bool AddAccount( int32_t StreamerID, const std::string& AccountID ) const;
