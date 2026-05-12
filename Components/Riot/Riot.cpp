@@ -841,7 +841,14 @@ namespace Components
 				Timer.expires_after( std::chrono::seconds( 30 ) );
 				co_await Timer.async_wait( asio::use_awaitable );
 			}
-		}, asio::detached );
+		}, [] ( const std::exception_ptr& Ptr )
+		{
+			if ( Ptr )
+			{
+				try { std::rethrow_exception( Ptr ); }
+				catch ( const std::exception& Ex ) { PrintError( "Riot co-routine threw: {}", Ex.what() ); }
+			}
+		} );
 	}
 
 	void Riot::InitializeDataDragon()

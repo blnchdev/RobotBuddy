@@ -11,6 +11,7 @@
 #include <functional>
 #include <iostream>
 #include <optional>
+#include <deque>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -52,8 +53,11 @@ namespace Components
 		void ReplyTo( const TwitchMessage& Parent, std::string_view Message );
 
 	private:
-		void                  SendRaw( std::string& Line );
-		asio::awaitable<void> SendRawAsync( std::string& Line );
+		void SendRaw( std::string Line );
+		void DoWrite();
+
+		bool                    Writing   = false;
+		std::deque<std::string> WriteList = {};
 
 		TokenManager&                               Tokens;
 		std::string                                 Nick;

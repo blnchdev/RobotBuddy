@@ -171,7 +171,11 @@ namespace Components
 
 				if ( !Line.empty() )
 				{
-					if ( Line.starts_with( "PING" ) ) co_await SendRawAsync( PongResponse );
+					if ( Line.starts_with( "PING" ) )
+					{
+						std::string Pong = "PONG :tmi.twitch.tv";
+						SendRaw( std::move( Pong ) );
+					}
 					else if ( auto Message = ParseMessage( Line ); Message.has_value() ) OnMessage( Message.value() );
 				}
 
@@ -179,12 +183,6 @@ namespace Components
 				View = View.substr( End + 2 );
 			}
 		}
-	}
-
-	asio::awaitable<void> TwitchBot::SendRawAsync( std::string& Line )
-	{
-		Line += "\r\n";
-		co_await WebSocket.async_write( asio::buffer( Line ), asio::use_awaitable );
 	}
 
 	void TwitchBot::SendChat( const std::string_view Channel, const std::string_view Message )
@@ -199,9 +197,36 @@ namespace Components
 		SendRaw( Line );
 	}
 
-	void TwitchBot::SendRaw( std::string& Line )
+	void TwitchBot::SendRaw( std::string Line )
 	{
 		Line += "\r\n";
-		WebSocket.write( asio::buffer( Line ) );
+		asio::dispatch( WebSocket.get_executor(), [this, Line = std::move( Line )]() mutable
+		{
+			WriteList.push_back( std::move( Line ) );
+			if ( !Writing ) DoWrite();
+		} );
+	}
+
+	void TwitchBot::DoWrite()
+	{
+		if ( WriteList.empty() )
+		{
+			Writing = false;
+			return;
+		}
+
+		Writing = true;
+		WebSocket.async_write( asio::buffer( WriteList.front() ), [this] ( const boost::system::error_code& EC, std::size_t )
+		{
+			WriteList.pop_front();
+
+			if ( EC )
+			{
+				PrintError( "Twitch write error: {}", EC.message() );
+				return;
+			}
+
+			DoWrite();
+		} );
 	}
 }

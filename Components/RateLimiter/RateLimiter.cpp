@@ -45,7 +45,7 @@ namespace Components
 
 	void RateLimiter::UpdateFromHeaders( const http::response<http::string_body>& Response )
 	{
-		asio::dispatch( Strand, [this, &Response]
+		asio::dispatch( Strand, [this, Response = Response]
 		{
 			if ( const auto Iterator = Response.find( "X-App-Rate-Limit-Count" ); Iterator != Response.end() )
 			{
