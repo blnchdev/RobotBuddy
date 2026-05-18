@@ -1,4 +1,5 @@
 #pragma once
+#include <deque>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/beast.hpp>
@@ -23,10 +24,12 @@ namespace Components
 		void                  UpdateFromHeaders( const http::response<http::string_body>& Response );
 
 	private:
+		void Cleanup( const std::chrono::high_resolution_clock::time_point& Now );
+
 		asio::strand<asio::io_context::executor_type> Strand;
-		asio::steady_timer                            Timer;
-		uint32_t                                      TokensShort,    TokensLong;
-		uint32_t                                      MaxShort,       MaxLong;
-		std::chrono::steady_clock::time_point         ShortWindowEnd, LongWindowEnd;
+		uint32_t                                      PerSecond, Per120Seconds;
+
+		std::deque<std::chrono::high_resolution_clock::time_point> Recent1s;
+		std::deque<std::chrono::high_resolution_clock::time_point> Recent120s;
 	};
 }

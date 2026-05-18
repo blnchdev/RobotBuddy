@@ -4,10 +4,7 @@
 
 namespace Components
 {
-	RateLimiter::RateLimiter( const uint32_t PerSecond, const uint32_t Per120Seconds ) : Strand( asio::make_strand( Globals::IOC ) ), Timer( Globals::IOC ),
-	                                                                                     TokensShort( PerSecond ), TokensLong( Per120Seconds ),
-	                                                                                     MaxShort( PerSecond ), MaxLong( Per120Seconds ),
-	                                                                                     ShortWindowEnd( std::chrono::steady_clock::now() + std::chrono::seconds( 1 ) ), LongWindowEnd( std::chrono::steady_clock::now() + std::chrono::seconds( 120 ) )
+	RateLimiter::RateLimiter( const uint32_t PerSecond, const uint32_t Per120Seconds ) : Strand( asio::make_strand( Globals::IOC ) ), PerSecond( PerSecond ), Per120Seconds( Per120Seconds )
 	{
 	}
 
@@ -15,58 +12,50 @@ namespace Components
 	{
 		co_await asio::dispatch( Strand, asio::use_awaitable );
 
-		while ( TokensShort == 0 || TokensLong == 0 )
+		while ( true )
 		{
-			const auto Now = std::chrono::steady_clock::now();
+			const auto Now = std::chrono::high_resolution_clock::now();
+			Cleanup( Now );
+			auto Earliest = Now;
 
-			if ( TokensShort == 0 && Now >= ShortWindowEnd )
+			if ( Recent1s.size() > PerSecond )
 			{
-				TokensShort    = MaxShort;
-				ShortWindowEnd = Now + std::chrono::seconds( 1 );
+				Earliest = std::max( Earliest, Recent1s.front() + std::chrono::seconds( 1 ) );
 			}
 
-			if ( TokensLong == 0 && Now >= LongWindowEnd )
+			if ( Recent120s.size() > Per120Seconds )
 			{
-				TokensLong    = MaxLong;
-				LongWindowEnd = Now + std::chrono::seconds( 120 );
+				Earliest = std::max( Earliest, Recent120s.front() + std::chrono::minutes( 2 ) );
 			}
 
-			if ( TokensShort == 0 || TokensLong == 0 )
+			if ( Earliest <= Now )
 			{
-				const auto WaitUntil = ( TokensShort == 0 ) ? ShortWindowEnd : LongWindowEnd;
-				Timer.expires_at( WaitUntil );
-				co_await Timer.async_wait( asio::use_awaitable );
+				Recent1s.push_back( Now );
+				Recent120s.push_back( Now );
+				co_return;
 			}
+
+			asio::steady_timer Timer( Strand );
+			Timer.expires_at( Earliest );
+			co_await Timer.async_wait( asio::use_awaitable );
 		}
-
-		--TokensShort;
-		--TokensLong;
 	}
 
 	void RateLimiter::UpdateFromHeaders( const http::response<http::string_body>& Response )
 	{
-		asio::dispatch( Strand, [this, Response = Response]
+		// Unimplemented
+	}
+
+	void RateLimiter::Cleanup( const std::chrono::high_resolution_clock::time_point& Now )
+	{
+		while ( !Recent1s.empty() && Now - Recent1s.front() >= std::chrono::seconds( 1 ) )
 		{
-			if ( const auto Iterator = Response.find( "X-App-Rate-Limit-Count" ); Iterator != Response.end() )
-			{
-				std::string_view Value{ Iterator->value() };
+			Recent1s.pop_front();
+		}
 
-				auto ParseCount = [&] ( const std::string_view Bucket )
-				{
-					uint32_t Count = 0;
-					std::from_chars( Bucket.data(), Bucket.data() + Bucket.size(), Count );
-					return Count;
-				};
-
-				if ( const auto Comma = Value.find( ',' ); Comma != std::string_view::npos )
-				{
-					const auto ShortCount = ParseCount( Value.substr( 0, Value.find( ':' ) ) );
-					const auto LongCount  = ParseCount( Value.substr( Comma + 1, Value.rfind( ':' ) - Comma - 1 ) );
-
-					TokensShort = ShortCount >= MaxShort ? 0 : MaxShort - ShortCount;
-					TokensLong  = LongCount >= MaxLong ? 0 : MaxLong - LongCount;
-				}
-			}
-		} );
+		while ( !Recent120s.empty() && Now - Recent120s.front() >= std::chrono::seconds( 120 ) )
+		{
+			Recent120s.pop_front();
+		}
 	}
 }
