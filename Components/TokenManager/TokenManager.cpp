@@ -30,7 +30,6 @@ namespace Components
 
 	void TokenManager::Refresh()
 	{
-		PrintTrace( "TokenManager: Refreshing..." );
 		asio::io_context         IOC;
 		ssl::stream<tcp::socket> Stream( IOC, SSLC );
 
@@ -68,8 +67,6 @@ namespace Components
 
 		auto ExpiresIn = J.value( "expires_in", 3600 );
 		ExpiresAt      = std::chrono::steady_clock::now() + std::chrono::seconds( ExpiresIn );
-
-		PrintNote( "TokenManager: Refreshed successfully, expires in {} seconds.", ExpiresIn );
 	}
 
 	void TokenManager::PersistTokens() const

@@ -108,7 +108,6 @@ namespace Components
 
 			if ( Status != 200 || Body.empty() )
 			{
-				PrintWarn( "GetGameSummary() failed with Status {}", Status );
 				co_return std::nullopt;
 			}
 
@@ -412,6 +411,7 @@ namespace Components
 			J[ "region" ].get_to( Account->Info.Region );
 		}
 
+		// Populate Ranks
 		{
 			auto SoloQ = co_await Globals::LeagueAPI->GetLeagueRank( *Account, GameType::SOLOQ );
 			auto FlexQ = co_await Globals::LeagueAPI->GetLeagueRank( *Account, GameType::FLEX );
@@ -435,27 +435,32 @@ namespace Components
 			}
 		}
 
+		auto PopulateOrDefault = [] ( RiotAccount* Target, const GameType RankedType )
 		{
-			auto PopulateOrDefault = [] ( RiotAccount* Target, const GameType RankedType )
+			const auto Data     = Globals::DB->GetRankData( Target->Info.Owner->ID, Target->Info.PUUID, RankedType );
+			auto&      ModeData = RankedType == GameType::SOLOQ ? Target->SoloQ : Target->FlexQ;
+
+			if ( Data.has_value() )
 			{
-				const auto Data     = Globals::DB->GetRankData( Target->Info.Owner->ID, Target->Info.PUUID, RankedType );
-				auto&      ModeData = RankedType == GameType::SOLOQ ? Target->SoloQ : Target->FlexQ;
+				ModeData.Rank.PersistentData = std::make_unique<PersistentRankData>( Data.value() );
+			}
+			else
+			{
+				if ( ModeData.Rank.IsUnranked ) return;
 
-				if ( Data.has_value() )
-				{
-					ModeData.Rank.PersistentData = std::make_unique<PersistentRankData>( Data.value() );
-				}
-				else
-				{
-					if ( ModeData.Rank.IsUnranked ) return;
+				ModeData.Rank.PersistentData = std::make_unique<PersistentRankData>( 0.f, 0.f, 0, 0, 0 );
+				Globals::DB->PushRankData( Target->Info.Owner->ID, Target->Info.PUUID, RankedType, *ModeData.Rank.PersistentData );
+			}
+		};
 
-					ModeData.Rank.PersistentData = std::make_unique<PersistentRankData>( 0.f, 0.f, 0, 0, 0 );
-					Globals::DB->PushRankData( Target->Info.Owner->ID, Target->Info.PUUID, RankedType, *ModeData.Rank.PersistentData );
-				}
-			};
-
+		try
+		{
 			PopulateOrDefault( Account.get(), GameType::SOLOQ );
 			PopulateOrDefault( Account.get(), GameType::FLEX );
+		}
+		catch ( std::exception& e )
+		{
+			PrintError( "PushRankData Error: {}", e.what() );
 		}
 
 		Account->Valid = true;
@@ -574,7 +579,6 @@ namespace Components
 
 		if ( Status != 200 )
 		{
-			PrintDebug( "Status {} GetCurrentGame", Status );
 			co_return std::nullopt;
 		}
 
@@ -717,6 +721,13 @@ namespace Components
 		co_await http::async_read( Stream, Buffer, Result, asio::use_awaitable );
 		if ( NeedsAPI ) RateLimiter.UpdateFromHeaders( Result );
 
+		auto const [ ShutdownEC ] = co_await Stream.async_shutdown( asio::as_tuple( asio::use_awaitable ) );
+
+		if ( ShutdownEC && ShutdownEC != ssl::error::stream_truncated )
+		{
+			PrintError( "SSL Shutdown Error: {}", ShutdownEC.message() );
+		}
+
 		co_return Response{ .Status = Result.result_int(), .Body = std::move( Result.body() ) };
 	}
 
@@ -790,8 +801,8 @@ namespace Components
 
 	void Riot::Connect( const std::span<Database::Streamer> Targets )
 	{
-		std::atomic<size_t> Pending = 0;
-		std::promise<void>  Ready;
+		auto Pending = std::make_shared<std::atomic<size_t>>( 0 );
+		auto Ready   = std::make_shared<std::promise<void>>();
 
 		for ( const auto& Target : Targets )
 		{
@@ -806,26 +817,27 @@ namespace Components
 
 			for ( const auto& PUUID : Target.Accounts )
 			{
-				++Pending;
+				Pending->fetch_add( 1 );
 
-				asio::co_spawn( Globals::IOC, [Pointer, &Pending, &Ready, PUUID = std::string( PUUID )]() -> asio::awaitable<void>
+				asio::co_spawn( Globals::IOC, [Pointer, Pending, Ready, PUUID = std::string( PUUID )]() -> asio::awaitable<void>
 				{
 					try
 					{
 						const auto Account = co_await RiotAccount::Create( Pointer, PUUID );
 						if ( Account ) Pointer->Accounts.push_back( Account );
 
-						if ( --Pending == 0 ) Ready.set_value();
+						if ( Pending->fetch_sub( 1 ) == 1 ) Ready->set_value();
 					}
 					catch ( std::exception& e )
 					{
 						PrintError( "co_spawn error: {}", e.what() );
+						__debugbreak();
 					}
 				}, asio::detached );
 			}
 		}
 
-		if ( Pending > 0 ) Ready.get_future().wait();
+		if ( Pending->load() > 0 ) Ready->get_future().wait();
 
 		asio::co_spawn( Globals::IOC, [this]() -> asio::awaitable<void>
 		{
@@ -872,7 +884,7 @@ namespace Components
 			LastVersion = J.begin().value().get<std::string>();
 		}
 
-		PrintDebug( "Using DataDragon Version {}", LastVersion );
+		PrintInfo( "The DataDragon roars! Version {}", LastVersion );
 
 		{
 			U.set_path( "/cdn" );
