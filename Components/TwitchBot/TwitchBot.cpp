@@ -89,14 +89,14 @@ namespace Components
 		}
 	}
 
-	TwitchBot::TwitchBot( TokenManager& Tokens, const std::string_view Nick ) : Tokens( Tokens ), Nick( Nick ), SSLC( ssl::context::tlsv12_client ), WebSocket( Globals::IOC, SSLC )
+	TwitchBot::TwitchBot( TokenManager& Tokens, const std::string_view Nick ) : Tokens( Tokens ), Nick( Nick ), SSLC( ssl::context::tlsv12_client ), WebSocket( asio::make_strand( Globals::IOC ), SSLC )
 	{
 		SSLC.set_default_verify_paths();
 	}
 
 	void TwitchBot::Connect()
 	{
-		tcp::resolver Resolver{ Globals::IOC };
+		tcp::resolver Resolver{ asio::make_strand( Globals::IOC ) };
 		const auto    Results = Resolver.resolve( "irc-ws.chat.twitch.tv", "443" );
 		asio::connect( beast::get_lowest_layer( WebSocket ), Results );
 
@@ -104,7 +104,6 @@ namespace Components
 
 		WebSocket.next_layer().handshake( ssl::stream_base::client );
 		WebSocket.handshake( "irc-ws.chat.twitch.tv", "/" );
-		PrintOk( "IRC: Connected" );
 	}
 
 	void TwitchBot::Login( const std::span<const std::string_view> ChannelsToJoin )
@@ -126,8 +125,6 @@ namespace Components
 			std::string Line = "JOIN #" + Lower;
 			SendRaw( Line );
 		}
-
-		PrintOk( "IRC: Logged in as {}, joined {} channel(s)", this->Nick, Channels.size() );
 	}
 
 	void TwitchBot::Join( const std::string_view Channel )
@@ -176,7 +173,11 @@ namespace Components
 						std::string Pong = "PONG :tmi.twitch.tv";
 						SendRaw( std::move( Pong ) );
 					}
-					else if ( auto Message = ParseMessage( Line ); Message.has_value() ) OnMessage( Message.value() );
+					else if ( auto Message = ParseMessage( Line ); Message.has_value() )
+					{
+						PrintDebug( "Message: {}", Message->Text );
+						OnMessage( Message.value() );
+					}
 				}
 
 				if ( End == std::string_view::npos ) break;
@@ -200,33 +201,37 @@ namespace Components
 	void TwitchBot::SendRaw( std::string Line )
 	{
 		Line += "\r\n";
-		asio::dispatch( WebSocket.get_executor(), [this, Line = std::move( Line )]() mutable
+		asio::post( WebSocket.get_executor(), [Self = Globals::TwitchAPI.get(), Line = std::move( Line )]() mutable
 		{
-			WriteList.push_back( std::move( Line ) );
-			if ( !Writing ) DoWrite();
+			Self->WriteList.push_back( std::move( Line ) );
+			if ( !Self->Writing ) Self->DoWrite();
 		} );
 	}
 
 	void TwitchBot::DoWrite()
 	{
-		if ( WriteList.empty() )
-		{
-			Writing = false;
-			return;
-		}
+		this->Writing = true;
 
-		Writing = true;
-		WebSocket.async_write( asio::buffer( WriteList.front() ), [this] ( const boost::system::error_code& EC, std::size_t )
+		auto Routine = [Self = Globals::TwitchAPI.get()] ( const beast::error_code& EC, size_t )
 		{
-			WriteList.pop_front();
-
 			if ( EC )
 			{
-				PrintError( "Twitch write error: {}", EC.message() );
+				Self->Writing = false;
 				return;
 			}
 
-			DoWrite();
-		} );
+			Self->WriteList.pop_front();
+
+			if ( Self->WriteList.empty() )
+			{
+				Self->Writing = false;
+			}
+			else
+			{
+				Self->DoWrite();
+			}
+		};
+
+		WebSocket.async_write( asio::buffer( WriteList.front() ), Routine );
 	}
 }
