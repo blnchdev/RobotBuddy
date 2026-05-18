@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <print>
+#include <windows.h>
 
 namespace TUI
 {
@@ -50,8 +51,19 @@ namespace TUI
 
 	void PrintSection( const std::string_view Title )
 	{
+		static bool     Initialized = false;
+		static uint32_t Columns;
+
 		const auto&       Config = GlobalConfig();
 		const std::string line( 48, '─' );
+
+		if ( !Initialized )
+		{
+			Initialized = true;
+			CONSOLE_SCREEN_BUFFER_INFO CSBI;
+			GetConsoleScreenBufferInfo( GetStdHandle( STD_OUTPUT_HANDLE ), &CSBI );
+			Columns = CSBI.srWindow.Right - CSBI.srWindow.Left - 6;
+		}
 
 		if ( Config.Color )
 		{
@@ -61,7 +73,7 @@ namespace TUI
 			}
 			else
 			{
-				const auto Padding = ( 46u - std::min<std::size_t>( Title.size(), 46u ) ) / 2;
+				const auto Padding = ( Columns - std::min<std::size_t>( Title.size(), Columns ) ) / 2;
 
 				std::string Left( Padding, ' ' );
 				std::string Right( Padding, ' ' );
@@ -82,7 +94,7 @@ namespace TUI
 			}
 			else
 			{
-				const auto Padding = ( 46u - std::min<std::size_t>( Title.size(), 46u ) ) / 2;
+				const auto Padding = ( Columns - std::min<std::size_t>( Title.size(), Columns ) ) / 2;
 
 				std::string Left( Padding, ' ' );
 				std::string Right( Padding, ' ' );

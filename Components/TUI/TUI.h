@@ -77,8 +77,10 @@ namespace TUI
 	template <typename... Args>
 	void PrintDebug( std::format_string<Args...> Format, Args&&... Arguments )
 	{
+#ifdef ROBOTBUDDY_DBG
 		const auto Message = std::format( Format, std::forward<Args>( Arguments )... );
 		Internal::Emit( GlobalConfig().Out, ANSI::Lavender, ANSI::Lavender, "[ ## ]", ANSI::Lavender, Message );
+#endif
 	}
 
 	template <typename... Args>
